@@ -78,6 +78,7 @@ export default function InboxPage() {
   const peerConnectionRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const pendingIceCandidatesRef = useRef([]);
   
   // Group creation state
   const [newGroup, setNewGroup] = useState({
@@ -176,14 +177,38 @@ export default function InboxPage() {
       userChannel.bind('call-answer', async (data) => {
         console.log('Received call answer from:', data.from);
         if (peerConnectionRef.current) {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+          try {
+            await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+            
+            // Process any pending ICE candidates
+            if (pendingIceCandidatesRef.current.length > 0) {
+              console.log('Processing', pendingIceCandidatesRef.current.length, 'pending ICE candidates');
+              for (const candidate of pendingIceCandidatesRef.current) {
+                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+              }
+              pendingIceCandidatesRef.current = [];
+            }
+          } catch (error) {
+            console.error('Error setting remote description:', error);
+          }
         }
       });
 
       userChannel.bind('ice-candidate', async (data) => {
         console.log('Received ICE candidate from:', data.from);
         if (peerConnectionRef.current && data.candidate) {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+          try {
+            // Check if remote description is set
+            if (peerConnectionRef.current.remoteDescription) {
+              await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+            } else {
+              // Queue the candidate until remote description is set
+              console.log('Queueing ICE candidate until remote description is set');
+              pendingIceCandidatesRef.current.push(data.candidate);
+            }
+          } catch (error) {
+            console.error('Error adding ICE candidate:', error);
+          }
         }
       });
 
@@ -923,6 +948,9 @@ export default function InboxPage() {
       peerConnectionRef.current = null;
     }
 
+    // Clear pending ICE candidates
+    pendingIceCandidatesRef.current = [];
+
     // Send end call signal via API
     if (selectedConversation?.user?.email) {
       await fetch('/api/webrtc/signal', {
@@ -1087,6 +1115,20 @@ export default function InboxPage() {
       
       // Set remote description and create answer
       await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      
+      // Process any pending ICE candidates
+      if (pendingIceCandidatesRef.current.length > 0) {
+        console.log('Processing', pendingIceCandidatesRef.current.length, 'pending ICE candidates');
+        for (const candidate of pendingIceCandidatesRef.current) {
+          try {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (error) {
+            console.error('Error adding queued ICE candidate:', error);
+          }
+        }
+        pendingIceCandidatesRef.current = [];
+      }
+      
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       

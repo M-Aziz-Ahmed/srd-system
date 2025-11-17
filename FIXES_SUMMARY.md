@@ -211,21 +211,24 @@
 
 ---
 
-## 🐛 Known Limitations
+## 🐛 Known Limitations & Recommendations
 
 ### Voice Messages:
 - Stored as base64 in MongoDB (works but not optimal for large scale)
 - Consider cloud storage (S3, Cloudinary) for production
+- Base64 increases storage by ~33% compared to binary
 
 ### WebRTC Calls:
-- Uses STUN only (works for most networks)
+- Uses STUN only (works for most networks ~80%)
 - May fail on strict corporate firewalls
 - Consider adding TURN servers for 100% reliability
+- ICE candidate queueing now prevents timing errors
 
 ### Online Status:
 - Updates on page events only
 - Consider adding heartbeat (ping every 30s) for more accuracy
 - No "typing..." indicator yet
+- No "last seen" timestamp display
 
 ---
 
