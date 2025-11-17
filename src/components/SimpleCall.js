@@ -14,12 +14,31 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
   const remoteAudio = useRef(null);
   const pendingCandidates = useRef([]);
 
-  // Simple STUN configuration
+  // STUN + TURN configuration for cross-network calls
   const config = {
     iceServers: [
+      // STUN servers (for same network)
       { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      // Free TURN servers (for different networks)
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ],
+    iceCandidatePoolSize: 10
   };
 
   // Listen for incoming signals
@@ -122,13 +141,25 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
         }
       };
 
+      // Monitor connection state
+      peerConnection.current.onconnectionstatechange = () => {
+        console.log('🔗 Connection state:', peerConnection.current.connectionState);
+      };
+
+      peerConnection.current.oniceconnectionstatechange = () => {
+        console.log('🧊 ICE state:', peerConnection.current.iceConnectionState);
+      };
+
       // Handle ICE candidates
       peerConnection.current.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log('📤 ICE candidate type:', event.candidate.type);
           sendSignal({
             type: 'ice-candidate',
             candidate: event.candidate
           });
+        } else {
+          console.log('✅ All ICE candidates sent');
         }
       };
 
@@ -185,13 +216,25 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
         }
       };
 
+      // Monitor connection state
+      peerConnection.current.onconnectionstatechange = () => {
+        console.log('🔗 Connection state:', peerConnection.current.connectionState);
+      };
+
+      peerConnection.current.oniceconnectionstatechange = () => {
+        console.log('🧊 ICE state:', peerConnection.current.iceConnectionState);
+      };
+
       // Handle ICE candidates
       peerConnection.current.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log('📤 ICE candidate type:', event.candidate.type);
           sendSignal({
             type: 'ice-candidate',
             candidate: event.candidate
           });
+        } else {
+          console.log('✅ All ICE candidates sent');
         }
       };
 
