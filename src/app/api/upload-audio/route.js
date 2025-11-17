@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 
 export async function POST(request) {
   try {
@@ -11,25 +9,21 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'No file provided' }, { status: 400 });
     }
 
-    const uploadsDir = path.join(process.cwd(), 'public', 'audio');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    // Convert file to buffer
+    // Convert file to base64 data URL (works in serverless environments)
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const base64 = buffer.toString('base64');
+    
+    // Create data URL
+    const mimeType = file.type || 'audio/webm';
+    const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    // Generate unique filename
-    const uniqueName = `voice-${Date.now()}.webm`;
-    const filePath = path.join(uploadsDir, uniqueName);
-
-    // Write file
-    fs.writeFileSync(filePath, buffer);
-
-    const url = `/audio/${uniqueName}`;
-
-    return NextResponse.json({ success: true, url });
+    return NextResponse.json({ 
+      success: true, 
+      url: dataUrl,
+      size: buffer.length,
+      mimeType: mimeType
+    });
   } catch (error) {
     console.error('Error uploading audio:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

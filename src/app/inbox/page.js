@@ -547,63 +547,78 @@ export default function InboxPage() {
     setIsSending(true);
 
     try {
-      // Upload audio file first
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'voice-message.webm');
+      // Convert audio blob to base64 data URL
+      const reader = new FileReader();
+      
+      reader.onloadend = async () => {
+        try {
+          const base64Audio = reader.result;
 
-      const uploadResponse = await fetch('/api/upload-audio', {
-        method: 'POST',
-        body: formData,
-      });
+          // Send message with audio data URL
+          const messageData = {
+            type: selectedConversation.type,
+            content: '🎤 Voice message',
+            isVoice: true,
+            attachments: [{
+              type: 'audio',
+              url: base64Audio,
+              mimeType: audioBlob.type || 'audio/webm',
+              size: audioBlob.size,
+            }],
+          };
 
-      const uploadData = await uploadResponse.json();
+          if (selectedConversation.type === 'direct') {
+            messageData.recipientId = selectedConversation.user._id;
+          } else if (selectedConversation.type === 'group') {
+            messageData.groupId = selectedConversation.group._id;
+          }
 
-      if (!uploadData.success) {
-        throw new Error('Failed to upload audio');
-      }
+          const response = await fetch('/api/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(messageData),
+          });
 
-      // Send message with audio URL
-      const messageData = {
-        type: selectedConversation.type,
-        content: '🎤 Voice message',
-        isVoice: true,
-        attachments: [{
-          type: 'audio',
-          url: uploadData.url,
-          mimeType: 'audio/webm',
-          size: audioBlob.size,
-        }],
+          const data = await response.json();
+
+          if (data.success) {
+            setMessages(prev => [...prev, data.data]);
+            setAudioBlob(null);
+            audioChunksRef.current = [];
+            toast({
+              title: 'Voice message sent',
+              description: 'Your voice message has been delivered',
+            });
+          } else {
+            toast({
+              title: 'Error',
+              description: data.error || 'Failed to send voice message',
+              variant: 'destructive',
+            });
+          }
+        } catch (error) {
+          console.error('Error sending voice message:', error);
+          toast({
+            title: 'Error',
+            description: error.message || 'Failed to send voice message',
+            variant: 'destructive',
+          });
+        } finally {
+          setIsSending(false);
+        }
       };
 
-      if (selectedConversation.type === 'direct') {
-        messageData.recipientId = selectedConversation.user._id;
-      } else if (selectedConversation.type === 'group') {
-        messageData.groupId = selectedConversation.group._id;
-      }
-
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(messageData),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setMessages(prev => [...prev, data.data]);
-        setAudioBlob(null);
-        audioChunksRef.current = [];
-        toast({
-          title: 'Voice message sent',
-          description: 'Your voice message has been delivered',
-        });
-      } else {
+      reader.onerror = () => {
+        console.error('Error reading audio file');
         toast({
           title: 'Error',
-          description: 'Failed to send voice message',
+          description: 'Failed to read audio file',
           variant: 'destructive',
         });
-      }
+        setIsSending(false);
+      };
+
+      reader.readAsDataURL(audioBlob);
     } catch (error) {
       console.error('Error sending voice message:', error);
       toast({
@@ -611,7 +626,6 @@ export default function InboxPage() {
         description: error.message || 'Failed to send voice message',
         variant: 'destructive',
       });
-    } finally {
       setIsSending(false);
     }
   };
