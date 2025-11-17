@@ -158,134 +158,6 @@ export default function InboxPage() {
         // Store audio reference to stop later
         window.ringtoneAudio = audio;
       });
-      
-      // Accept incoming call function
-      const acceptIncomingCall = async () => {
-        if (!incomingCall) return;
-        
-        // Stop ringtone
-        if (window.ringtoneAudio) {
-          window.ringtoneAudio.pause();
-          window.ringtoneAudio = null;
-        }
-        
-        setIsRinging(false);
-        
-        try {
-          setCallType(incomingCall.type);
-          setShowCallDialog(true);
-          
-          // Get user media
-          const constraints = {
-            audio: true,
-            video: incomingCall.type === 'video' ? { width: 1280, height: 720 } : false,
-          };
-          
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          setLocalStream(stream);
-          
-          if (localVideoRef.current && incomingCall.type === 'video') {
-            localVideoRef.current.srcObject = stream;
-          }
-          
-          // Create peer connection
-          const configuration = {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' },
-            ],
-          };
-          
-          const peerConnection = new RTCPeerConnection(configuration);
-          peerConnectionRef.current = peerConnection;
-          
-          // Add local stream
-          stream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, stream);
-          });
-          
-          // Handle remote stream
-          peerConnection.ontrack = (event) => {
-            console.log('Received remote track');
-            const [remoteStream] = event.streams;
-            setRemoteStream(remoteStream);
-            if (remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = remoteStream;
-            }
-          };
-          
-          // Handle ICE candidates
-          peerConnection.onicecandidate = async (event) => {
-            if (event.candidate) {
-              // Send via API instead of direct Pusher trigger
-              await fetch('/api/webrtc/signal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  to: incomingCall.fromEmail,
-                  type: 'ice-candidate',
-                  candidate: event.candidate,
-                }),
-              });
-            }
-          };
-          
-          // Set remote description and create answer
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
-          
-          // Send answer via API
-          await fetch('/api/webrtc/signal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: incomingCall.fromEmail,
-              type: 'call-answer',
-              answer: answer,
-            }),
-          });
-          
-          setIsInCall(true);
-          setIncomingCall(null);
-          
-          // Start timer
-          callTimerRef.current = setInterval(() => {
-            setCallDuration(prev => prev + 1);
-          }, 1000);
-        } catch (error) {
-          console.error('Error accepting call:', error);
-          toast({
-            title: 'Call Error',
-            description: 'Could not accept call',
-            variant: 'destructive',
-          });
-        }
-      };
-      
-      // Reject incoming call function
-      const rejectIncomingCall = () => {
-        if (!incomingCall) return;
-        
-        // Stop ringtone
-        if (window.ringtoneAudio) {
-          window.ringtoneAudio.pause();
-          window.ringtoneAudio = null;
-        }
-        
-        // Reject call via API
-        fetch('/api/webrtc/signal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: incomingCall.fromEmail,
-            type: 'call-rejected',
-          }),
-        });
-        
-        setIncomingCall(null);
-        setIsRinging(false);
-      };
 
       userChannel.bind('call-answer', async (data) => {
         console.log('Received call answer from:', data.from);
@@ -820,10 +692,18 @@ export default function InboxPage() {
       setShowCallDialog(true);
       setCallDuration(0);
 
-      // Get user media
+      // Get user media with proper constraints
       const constraints = {
-        audio: true,
-        video: type === 'video' ? { width: 1280, height: 720 } : false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: type === 'video' ? { 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 },
+          facingMode: 'user'
+        } : false,
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -844,18 +724,28 @@ export default function InboxPage() {
       const peerConnection = new RTCPeerConnection(configuration);
       peerConnectionRef.current = peerConnection;
 
-      // Add local stream to peer connection
+      // Add local stream tracks to peer connection
       stream.getTracks().forEach(track => {
+        console.log('Adding local track:', track.kind, track.enabled);
         peerConnection.addTrack(track, stream);
       });
 
       // Handle remote stream
       peerConnection.ontrack = (event) => {
-        console.log('Received remote track');
+        console.log('Received remote track:', event.track.kind);
         const [remoteStream] = event.streams;
         setRemoteStream(remoteStream);
+        
+        // Automatically play remote audio/video
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStream;
+          remoteVideoRef.current.play().catch(e => {
+            console.log('Remote play error:', e);
+            // Try again after user interaction
+            setTimeout(() => {
+              remoteVideoRef.current?.play().catch(err => console.log('Retry failed:', err));
+            }, 1000);
+          });
         }
       };
 
@@ -875,8 +765,11 @@ export default function InboxPage() {
         }
       };
 
-      // Create and send offer
-      const offer = await peerConnection.createOffer();
+      // Create and send offer with proper options
+      const offer = await peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: type === 'video',
+      });
       await peerConnection.setLocalDescription(offer);
 
       // Send offer via API
@@ -913,7 +806,7 @@ export default function InboxPage() {
     }
   };
 
-  const endCall = () => {
+  const endCall = async () => {
     // Stop timer
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
@@ -936,13 +829,20 @@ export default function InboxPage() {
       peerConnectionRef.current = null;
     }
 
-    // Send end call signal
-    if (pusherRef.current && selectedConversation) {
-      pusherRef.current.trigger(`user-${selectedConversation.user.email}`, 'call-end', {
-        from: session.user.email,
+    // Send end call signal via API
+    if (selectedConversation?.user?.email) {
+      await fetch('/api/webrtc/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: selectedConversation.user.email,
+          type: 'call-end',
+        }),
       });
     }
 
+    const duration = callDuration;
+    
     setIsInCall(false);
     setShowCallDialog(false);
     setCallDuration(0);
@@ -951,7 +851,7 @@ export default function InboxPage() {
 
     toast({
       title: 'Call Ended',
-      description: callDuration > 0 ? `Call duration: ${formatDuration(callDuration)}` : 'Call ended',
+      description: duration > 0 ? `Call duration: ${formatDuration(duration)}` : 'Call ended',
     });
   };
 
@@ -996,10 +896,18 @@ export default function InboxPage() {
       setCallType(incomingCall.type);
       setShowCallDialog(true);
       
-      // Get user media
+      // Get user media with proper constraints
       const constraints = {
-        audio: true,
-        video: incomingCall.type === 'video' ? { width: 1280, height: 720 } : false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: incomingCall.type === 'video' ? { 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 },
+          facingMode: 'user'
+        } : false,
       };
       
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -1014,33 +922,60 @@ export default function InboxPage() {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
         ],
       };
       
       const peerConnection = new RTCPeerConnection(configuration);
       peerConnectionRef.current = peerConnection;
       
-      // Add local stream
+      // Add local stream tracks
       stream.getTracks().forEach(track => {
+        console.log('Adding local track:', track.kind, track.enabled);
         peerConnection.addTrack(track, stream);
       });
       
       // Handle remote stream
       peerConnection.ontrack = (event) => {
-        console.log('Received remote track');
+        console.log('Received remote track:', event.track.kind, 'enabled:', event.track.enabled);
         const [remoteStream] = event.streams;
         setRemoteStream(remoteStream);
         
-        // Play remote audio automatically
+        // Automatically play remote audio/video
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStream;
-          remoteVideoRef.current.play().catch(e => console.log('Remote play error:', e));
+          remoteVideoRef.current.volume = 1.0; // Full volume
+          remoteVideoRef.current.muted = false; // Not muted
+          
+          // Play with retry
+          const playPromise = remoteVideoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => console.log('Remote stream playing'))
+              .catch(e => {
+                console.log('Remote play error:', e);
+                // Retry after a short delay
+                setTimeout(() => {
+                  remoteVideoRef.current?.play().catch(err => console.log('Retry failed:', err));
+                }, 500);
+              });
+          }
         }
+      };
+      
+      // Handle connection state
+      peerConnection.onconnectionstatechange = () => {
+        console.log('Connection state:', peerConnection.connectionState);
+      };
+      
+      peerConnection.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', peerConnection.iceConnectionState);
       };
       
       // Handle ICE candidates
       peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
+          console.log('Sending ICE candidate');
           await fetch('/api/webrtc/signal', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1085,7 +1020,7 @@ export default function InboxPage() {
       console.error('Error accepting call:', error);
       toast({
         title: 'Call Error',
-        description: 'Could not accept call',
+        description: error.message || 'Could not accept call',
         variant: 'destructive',
       });
       rejectIncomingCall();
