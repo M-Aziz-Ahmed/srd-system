@@ -23,12 +23,17 @@ import {
   ArrowLeft,
   Mic,
   X,
-  Check
+  Check,
+  FileText,
+  Link as LinkIcon
 } from 'lucide-react';
+import Link from 'next/link';
 import { useToast } from '@/lib/use-toast';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { ChevronRight } from 'lucide-react';
 
 export default function InboxPage() {
   const { data: session, status } = useSession();
@@ -55,6 +60,9 @@ export default function InboxPage() {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [showSRDPicker, setShowSRDPicker] = useState(false);
+  const [srds, setSrds] = useState([]);
+  const [selectedSRD, setSelectedSRD] = useState(null);
   const messagesEndRef = useRef(null);
   const pusherRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -263,7 +271,20 @@ export default function InboxPage() {
 
     fetchMessages();
     fetchUsers();
+    fetchSRDs();
   }, [session, status, router, activeTab]);
+
+  const fetchSRDs = async () => {
+    try {
+      const response = await fetch('/api/srd');
+      const data = await response.json();
+      if (data.success) {
+        setSrds(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching SRDs:', error);
+    }
+  };
 
   const fetchMessages = async () => {
     try {
@@ -364,17 +385,22 @@ export default function InboxPage() {
   }
 
   const handleSendQuickMessage = async () => {
-    if (!messageInput.trim() || !selectedConversation || isSending) return;
+    if ((!messageInput.trim() && !selectedSRD) || !selectedConversation || isSending) return;
 
     const messageData = {
       type: selectedConversation.type,
-      content: messageInput.trim(),
+      content: messageInput.trim() || '📎 Shared an SRD',
     };
 
     if (selectedConversation.type === 'direct') {
       messageData.recipientId = selectedConversation.user._id;
     } else {
       messageData.department = selectedConversation.department;
+    }
+
+    // Add SRD reference if selected
+    if (selectedSRD) {
+      messageData.srdId = selectedSRD._id;
     }
 
     // Optimistic update - add message immediately
@@ -412,6 +438,7 @@ export default function InboxPage() {
         setMessages(prev => prev.map(msg => 
           msg._id === tempMessage._id ? { ...data.data, sent: true } : msg
         ));
+        setSelectedSRD(null);
       } else {
         // Remove temp message on error
         setMessages(prev => prev.filter(msg => msg._id !== tempMessage._id));
@@ -1102,14 +1129,51 @@ export default function InboxPage() {
                           
                           {/* Voice message */}
                           {msg.isVoice && msg.attachments && msg.attachments.length > 0 ? (
-                            <div className="flex items-center gap-2">
-                              <Mic className="h-4 w-4 flex-shrink-0" />
+                            <div className="flex items-center gap-2 min-w-[200px]">
+                              <div className={cn(
+                                "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                                isOwn ? "bg-blue-600" : "bg-gray-200"
+                              )}>
+                                <Mic className={cn("h-4 w-4", isOwn ? "text-white" : "text-gray-600")} />
+                              </div>
                               <audio 
                                 controls 
-                                className="max-w-xs"
+                                preload="metadata"
+                                className="flex-1"
                                 src={msg.attachments[0].url || msg.attachments[0]}
-                                style={{ height: '32px' }}
+                                style={{ 
+                                  height: '32px',
+                                  filter: isOwn ? 'invert(1) brightness(2)' : 'none'
+                                }}
                               />
+                            </div>
+                          ) : msg.srd ? (
+                            /* SRD Reference */
+                            <div>
+                              <p className="text-sm break-words whitespace-pre-wrap mb-2">
+                                {msg.content}
+                              </p>
+                              <Link 
+                                href={`/srd/${msg.srd._id}`}
+                                className={cn(
+                                  "block p-3 rounded-lg border-2 hover:shadow-md transition-all",
+                                  isOwn ? "bg-blue-600 border-blue-400" : "bg-white border-gray-200"
+                                )}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="flex items-center gap-2 mb-1">
+                                  <FileText className={cn("h-4 w-4", isOwn ? "text-blue-100" : "text-blue-600")} />
+                                  <span className={cn("text-xs font-semibold", isOwn ? "text-blue-100" : "text-gray-500")}>
+                                    SRD Reference
+                                  </span>
+                                </div>
+                                <p className={cn("font-semibold text-sm", isOwn ? "text-white" : "text-gray-900")}>
+                                  {msg.srd.refNo}
+                                </p>
+                                <p className={cn("text-xs mt-1", isOwn ? "text-blue-100" : "text-gray-600")}>
+                                  {msg.srd.title}
+                                </p>
+                              </Link>
                             </div>
                           ) : (
                             <p className="text-sm break-words whitespace-pre-wrap">
@@ -1197,12 +1261,40 @@ export default function InboxPage() {
                   </div>
                 ) : (
                   /* Normal input */
-                  <div className="flex items-end gap-2">
-                    <Button variant="ghost" size="sm" className="rounded-full w-9 h-9 p-0 flex-shrink-0">
-                      <Plus className="h-5 w-5" />
-                    </Button>
-                    
-                    <div className="flex-1 bg-gray-100 rounded-3xl px-4 py-2 flex items-center gap-2">
+                  <div className="flex flex-col gap-2">
+                    {/* SRD Reference Preview */}
+                    {selectedSRD && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                          <div>
+                            <p className="text-xs font-semibold text-blue-900">{selectedSRD.refNo}</p>
+                            <p className="text-xs text-blue-700">{selectedSRD.title}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedSRD(null)}
+                          className="h-6 w-6 p-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+
+                    <div className="flex items-end gap-2">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="rounded-full w-9 h-9 p-0 flex-shrink-0"
+                        onClick={() => setShowSRDPicker(true)}
+                        title="Attach SRD"
+                      >
+                        <FileText className="h-5 w-5" />
+                      </Button>
+                      
+                      <div className="flex-1 bg-gray-100 rounded-3xl px-4 py-2 flex items-center gap-2">
                       <Button variant="ghost" size="sm" className="rounded-full w-8 h-8 p-0">
                         <Smile className="h-5 w-5 text-gray-500" />
                       </Button>
@@ -1224,7 +1316,7 @@ export default function InboxPage() {
                       </Button>
                     </div>
 
-                    {messageInput.trim() ? (
+                    {messageInput.trim() || selectedSRD ? (
                       <Button 
                         onClick={handleSendQuickMessage}
                         disabled={isSending}
@@ -1240,6 +1332,7 @@ export default function InboxPage() {
                         <Mic className="h-5 w-5" />
                       </Button>
                     )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1415,6 +1508,60 @@ export default function InboxPage() {
                 </Button>
               </div>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* SRD Picker Dialog */}
+        <Dialog open={showSRDPicker} onOpenChange={setShowSRDPicker}>
+          <DialogContent className="max-w-2xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Select SRD to Share</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+              {srds.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                  <p className="text-gray-500">No SRDs available</p>
+                </div>
+              ) : (
+                srds.map(srd => (
+                  <div
+                    key={srd._id}
+                    onClick={() => {
+                      setSelectedSRD(srd);
+                      setShowSRDPicker(false);
+                      toast({
+                        title: 'SRD Selected',
+                        description: `${srd.refNo} - ${srd.title}`,
+                      });
+                    }}
+                    className="p-4 border rounded-lg hover:bg-blue-50 hover:border-blue-300 cursor-pointer transition-all"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                          <span className="font-semibold text-gray-900">{srd.refNo}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {srd.progress}%
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-700 font-medium">{srd.title}</p>
+                        <p className="text-xs text-gray-500 mt-1">{srd.description}</p>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-gray-400" />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowSRDPicker(false)}>
+                Cancel
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 

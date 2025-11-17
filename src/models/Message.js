@@ -42,6 +42,12 @@ const messageSchema = new mongoose.Schema({
     ref: 'SRD',
   },
   
+  // For backward compatibility
+  srdId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SRD',
+  },
+  
   // Read status for each recipient
   readBy: [{
     user: {
