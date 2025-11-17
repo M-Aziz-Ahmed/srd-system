@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { ChevronUp, ChevronDown, Search, Filter } from 'lucide-react';
+import { ChevronUp, ChevronDown, Search, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 
 export default function SRDTable({ srds, department }) {
@@ -12,6 +13,8 @@ export default function SRDTable({ srds, department }) {
   const [sortDirection, setSortDirection] = useState('desc');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedImages, setSelectedImages] = useState(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -35,25 +38,50 @@ export default function SRDTable({ srds, department }) {
   const filteredAndSortedSRDs = srds
     .filter(srd => {
       const matchesSearch = srd.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           srd.refNo.toLowerCase().includes(searchTerm.toLowerCase());
+        srd.refNo.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = filterStatus === 'all' || (srd.status && srd.status[department] === filterStatus);
       return matchesSearch && matchesStatus;
     })
     .sort((a, b) => {
       let aValue = a[sortField];
       let bValue = b[sortField];
-      
+
       if (sortField === 'createdAt' || sortField === 'updatedAt') {
         aValue = new Date(aValue);
         bValue = new Date(bValue);
       }
-      
+
       if (sortDirection === 'asc') {
         return aValue > bValue ? 1 : -1;
       } else {
         return aValue < bValue ? 1 : -1;
       }
     });
+
+  console.log(srds);
+
+  const openImageSlider = (images) => {
+    const imageArray = Array.isArray(images) ? images : [images];
+    setSelectedImages(imageArray);
+    setCurrentImageIndex(0);
+  };
+
+  const closeImageSlider = () => {
+    setSelectedImages(null);
+    setCurrentImageIndex(0);
+  };
+
+  const nextImage = () => {
+    if (selectedImages && currentImageIndex < selectedImages.length - 1) {
+      setCurrentImageIndex(currentImageIndex + 1);
+    }
+  };
+
+  const prevImage = () => {
+    if (currentImageIndex > 0) {
+      setCurrentImageIndex(currentImageIndex - 1);
+    }
+  };
 
   return (
     <div className="bg-white rounded-lg shadow">
@@ -118,6 +146,9 @@ export default function SRDTable({ srds, department }) {
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Images
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Progress
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -153,6 +184,22 @@ export default function SRDTable({ srds, department }) {
                     {department === 'admin' ? (srd.readyForProduction ? "Ready" : "In Progress") : (srd.status ? srd.status[department] : 'pending')}
                   </Badge>
                 </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {srd.images.length > 0 ? (
+                    <div 
+                      className="font-medium cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => openImageSlider(srd.images)}
+                    >
+                      <Image 
+                        src={Array.isArray(srd.images) ? srd.images[0] : srd.images} 
+                        width={100} 
+                        height={100}
+                        alt="SRD thumbnail"
+                        className="rounded object-cover"
+                      />
+                    </div>
+                  ) : ''}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center space-x-2">
                     <Progress value={srd.progress} className="w-16 h-2" />
@@ -178,6 +225,58 @@ export default function SRDTable({ srds, department }) {
       {filteredAndSortedSRDs.length === 0 && (
         <div className="text-center py-12">
           <p className="text-gray-500">No SRDs found matching your criteria.</p>
+        </div>
+      )}
+
+      {/* Image Slider Modal */}
+      {selectedImages && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90"
+          onClick={closeImageSlider}
+        >
+          <button
+            onClick={closeImageSlider}
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
+          >
+            <X className="h-8 w-8" />
+          </button>
+
+          <div 
+            className="relative max-w-5xl max-h-[90vh] w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Image
+              src={selectedImages[currentImageIndex]}
+              width={1200}
+              height={800}
+              alt={`Image ${currentImageIndex + 1}`}
+              className="w-full h-auto max-h-[90vh] object-contain rounded-lg"
+            />
+
+            {selectedImages.length > 1 && (
+              <>
+                <button
+                  onClick={prevImage}
+                  disabled={currentImageIndex === 0}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-full p-2 transition-all"
+                >
+                  <ChevronLeft className="h-6 w-6 text-gray-800" />
+                </button>
+
+                <button
+                  onClick={nextImage}
+                  disabled={currentImageIndex === selectedImages.length - 1}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-full p-2 transition-all"
+                >
+                  <ChevronRight className="h-6 w-6 text-gray-800" />
+                </button>
+
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black bg-opacity-60 text-white px-4 py-2 rounded-full text-sm">
+                  {currentImageIndex + 1} / {selectedImages.length}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -36,7 +36,7 @@ import {
 
 const menuItems = {
   admin: [
-    { name: 'Dashboard', href: '/dashboard/admin', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+    { name: 'Home', href: '/dashboard/admin', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
     { name: 'All SRDs', href: '/srd', icon: FileText, gradient: 'from-purple-500 to-pink-500' },
     { name: 'Settings', href: '/settings', icon: Settings, gradient: 'from-gray-500 to-slate-600' },
     { name: 'Departments', href: '/departments', icon: Edit, gradient: 'from-blue-500 to-indigo-500' },
@@ -45,12 +45,12 @@ const menuItems = {
     { name: 'Users', href: '/users', icon: Users, gradient: 'from-orange-500 to-red-500' },
   ],
   vmd: [
-    { name: 'Dashboard', href: '/dashboard/vmd', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+    { name: 'Home', href: '/dashboard/vmd', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
     { name: 'Create SRD', href: '/dashboard/vmd/create', icon: FileText, gradient: 'from-emerald-500 to-teal-500' },
     { name: 'Ready For Production', href: '/srd?readyForProduction=true', icon: BadgeCheckIcon, gradient: 'from-green-500 to-emerald-500' },
   ],
   cad: [
-    { name: 'Dashboard', href: '/dashboard/cad', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+    { name: 'Home', href: '/dashboard/cad', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
     { name: 'Active SRDs', href: '/srd?department=cad', icon: Scissors, gradient: 'from-violet-500 to-purple-500' },
     {
       name: 'In Progress',
@@ -66,7 +66,7 @@ const menuItems = {
     },
   ],
   commercial: [
-    { name: 'Dashboard', href: '/dashboard/commercial', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+    { name: 'Home', href: '/dashboard/commercial', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
     {
       name: 'Quotations',
       href: '/srd?department=commercial',
@@ -82,7 +82,7 @@ const menuItems = {
     },
   ],
   mmc: [
-    { name: 'Dashboard', href: '/dashboard/mmc', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+    { name: 'Home', href: '/dashboard/mmc', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
     { name: 'Production', href: '/srd?department=mmc', icon: Factory, gradient: 'from-slate-600 to-gray-700' },
     { name: 'Quality Control', href: '/quality', icon: Package, gradient: 'from-teal-500 to-cyan-500' },
     {

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 
@@ -346,6 +346,60 @@ export default function DepartmentPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Image Slider Modal */}
+      {isImageModalOpen && modalImages.length > 0 && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90"
+          onClick={() => setIsImageModalOpen(false)}
+        >
+          <button
+            onClick={() => setIsImageModalOpen(false)}
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10"
+          >
+            <X className="h-8 w-8" />
+          </button>
+
+          <div 
+            className="relative max-w-5xl max-h-[90vh] w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative w-full h-[80vh] flex items-center justify-center">
+              <Image
+                src={modalImages[imageModalIndex]}
+                alt={`Image ${imageModalIndex + 1}`}
+                fill
+                className="object-contain"
+                sizes="(max-width: 1280px) 100vw, 1280px"
+              />
+            </div>
+
+            {modalImages.length > 1 && (
+              <>
+                <button
+                  onClick={() => setImageModalIndex(Math.max(0, imageModalIndex - 1))}
+                  disabled={imageModalIndex === 0}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-full p-2 transition-all"
+                >
+                  <ChevronLeft className="h-6 w-6 text-gray-800" />
+                </button>
+
+                <button
+                  onClick={() => setImageModalIndex(Math.min(modalImages.length - 1, imageModalIndex + 1))}
+                  disabled={imageModalIndex === modalImages.length - 1}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-full p-2 transition-all"
+                >
+                  <ChevronRight className="h-6 w-6 text-gray-800" />
+                </button>
+
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black bg-opacity-60 text-white px-4 py-2 rounded-full text-sm">
+                  {imageModalIndex + 1} / {modalImages.length}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
