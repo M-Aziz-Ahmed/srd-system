@@ -1732,6 +1732,16 @@ export default function InboxPage() {
                 </div>
               )}
 
+              {/* Hidden audio element for voice calls */}
+              {callType === 'voice' && (
+                <audio
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className="hidden"
+                />
+              )}
+              
               {/* Audio indicator for voice calls */}
               {callType === 'voice' && remoteStream && (
                 <div className="flex justify-center">
