@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import SRD from '@/models/SRD';
+import User from '@/models/User';
+import Notification from '@/models/Notification';
 import pusher from '@/lib/pusher-server';
 
 export async function PATCH(request, context) {

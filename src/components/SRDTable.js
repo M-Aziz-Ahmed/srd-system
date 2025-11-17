@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { ChevronUp, ChevronDown, Search, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronUp, ChevronDown, Search, Filter, X, ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -58,7 +58,36 @@ export default function SRDTable({ srds, department }) {
       }
     });
 
-  console.log(srds);
+  // Helper function to get all images for an SRD
+  const getAllImages = (srd) => {
+    const globalImages = Array.isArray(srd.images) ? srd.images : (srd.images ? [srd.images] : []);
+    
+    // Get images from department's dynamic fields (look for image type fields)
+    const deptImageFields = srd.dynamicFields?.filter(f => {
+      if (f.department !== department) return false;
+      if (!f.value) return false;
+      
+      // Check if it's an image URL (starts with / or http)
+      if (typeof f.value === 'string' && (f.value.startsWith('/') || f.value.startsWith('http'))) {
+        return true;
+      }
+      
+      // Check if it's an array of image URLs
+      if (Array.isArray(f.value) && f.value.length > 0) {
+        return f.value.some(v => typeof v === 'string' && (v.startsWith('/') || v.startsWith('http')));
+      }
+      
+      return false;
+    }) || [];
+    
+    const deptImages = deptImageFields.flatMap(field => 
+      Array.isArray(field.value) ? field.value : [field.value]
+    );
+    
+    const allImages = Array.from(new Set([...globalImages, ...deptImages])).filter(Boolean);
+    
+    return allImages;
+  };
 
   const openImageSlider = (images) => {
     const imageArray = Array.isArray(images) ? images : [images];
@@ -185,20 +214,33 @@ export default function SRDTable({ srds, department }) {
                   </Badge>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {srd.images.length > 0 ? (
-                    <div 
-                      className="font-medium cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => openImageSlider(srd.images)}
-                    >
-                      <Image 
-                        src={Array.isArray(srd.images) ? srd.images[0] : srd.images} 
-                        width={100} 
-                        height={100}
-                        alt="SRD thumbnail"
-                        className="rounded object-cover"
-                      />
-                    </div>
-                  ) : ''}
+                  {(() => {
+                    const allImages = getAllImages(srd);
+                    return allImages.length > 0 ? (
+                      <div 
+                        className="cursor-pointer hover:opacity-80 transition-opacity relative group"
+                        onClick={() => openImageSlider(allImages)}
+                      >
+                        <Image 
+                          src={allImages[0]} 
+                          width={60} 
+                          height={60}
+                          alt="SRD cover"
+                          className="rounded object-cover border-2 border-yellow-400"
+                        />
+                        <div className="absolute top-0 left-0 bg-yellow-400 text-yellow-900 px-1 py-0.5 rounded-tl rounded-br text-xs font-semibold flex items-center gap-0.5">
+                          <Star className="h-2.5 w-2.5 fill-current" />
+                        </div>
+                        {allImages.length > 1 && (
+                          <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold shadow">
+                            {allImages.length}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400 text-xs">No images</span>
+                    );
+                  })()}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center space-x-2">

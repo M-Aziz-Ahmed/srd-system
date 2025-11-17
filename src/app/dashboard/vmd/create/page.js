@@ -47,7 +47,7 @@ export default function CreateSRDPage() {
         if (Array.isArray(data)) {
           // 🔹 Filter for active fields for 'vmd' OR 'global'
           const activeFields = data.filter(
-            (f) => f.active && (f.department === 'vmd' || f.department === 'global')
+            (f) => f.active && (f.department === 'global')
           );
           setDynamicDefs(activeFields);
 
@@ -213,15 +213,6 @@ export default function CreateSRDPage() {
                   rows={3}
                 />
               </div>
-            </CardContent>
-          </Card>
-
-          {/* VMD Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">VMD Fields</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
               {dynamicDefs.length === 0 ? (
                 <div className="text-gray-600">No dynamic fields defined for VMD. Add fields from Admin → Manage SRD Fields.</div>
               ) : (
@@ -230,7 +221,7 @@ export default function CreateSRDPage() {
                     // 🔹 FIX 2 (Renderer): Get value using 'def.name'
                     const val = dynamicValues[def.name] ?? ''; 
                     return (
-                      <div key={def._id}>
+                      <div key={def._id }>
                         <Label>{def.name}{def.isRequired ? ' *' : ''}</Label>
                         {/* 🔹 Pass 'def.name' to the change handler */}
                         {def.type === 'textarea' ? (
@@ -258,9 +249,6 @@ export default function CreateSRDPage() {
                   })}
                 </div>
               )}
-
-              {/* Image upload */}
-              
             </CardContent>
           </Card>
 

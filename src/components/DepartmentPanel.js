@@ -10,9 +10,11 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertCircle, X, ChevronLeft, ChevronRight, Trash2, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
+import UploadImage from './UploadImage';
+import { useToast } from '@/lib/use-toast';
 
 export default function DepartmentPanel({
   srd,
@@ -21,17 +23,19 @@ export default function DepartmentPanel({
   isLoading,
   canEdit
 }) {
+  const { toast } = useToast();
   const [status, setStatus] = useState(srd.status?.[department] || 'pending');
   const [fields, setFields] = useState(srd.dynamicFields?.filter(f => f.department === department) || []);
-  const [fieldDefs, setFieldDefs] = useState([]); 
+  const [fieldDefs, setFieldDefs] = useState([]);
 
   const [showFlagDialog, setShowFlagDialog] = useState(false);
   const [flagComment, setFlagComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [imageModalIndex, setImageModalIndex] = useState(0);
   const [modalImages, setModalImages] = useState([]);
+  const [coverImageIndex, setCoverImageIndex] = useState(0);
 
   useEffect(() => {
     async function fetchFields() {
@@ -40,11 +44,11 @@ export default function DepartmentPanel({
         const data = await res.json();
         const activeFields = Array.isArray(data) ? data.filter(f => f.active) : [];
         setFieldDefs(activeFields);
-        
+
         // Initialize fields if they don't exist
         const existingFieldNames = fields.map(f => f.name);
         const newFields = [...fields];
-        
+
         activeFields.forEach(fieldDef => {
           if (!existingFieldNames.includes(fieldDef.name)) {
             newFields.push({
@@ -54,7 +58,7 @@ export default function DepartmentPanel({
             });
           }
         });
-        
+
         if (newFields.length > fields.length) {
           setFields(newFields);
         }
@@ -65,12 +69,15 @@ export default function DepartmentPanel({
     fetchFields();
   }, [department]);
 
-  // Update status when SRD changes
+  // Update status and fields when SRD changes
   useEffect(() => {
     setStatus(srd.status?.[department] || 'pending');
+    const deptFields = srd.dynamicFields?.filter(f => f.department === department) || [];
+    setFields(deptFields);
   }, [srd, department]);
 
   const handleFieldChange = (name, value) => {
+    console.log('[DepartmentPanel] Field changed:', name, value);
     setFields(prev => {
       const existingFieldIndex = prev.findIndex(f => f.name === name);
       if (existingFieldIndex > -1) {
@@ -80,6 +87,47 @@ export default function DepartmentPanel({
       } else {
         return [...prev, { name, value, department }];
       }
+    });
+  };
+
+  const handleRemoveImage = (fieldName, imageIndex, allImages) => {
+    const imageToRemove = allImages[imageIndex];
+    const fieldValue = fields.find(f => f.name === fieldName)?.value ?? '';
+    const deptImages = Array.isArray(fieldValue) ? fieldValue : (fieldValue ? [fieldValue] : []);
+    
+    // Only remove if it's in department images (not global)
+    if (deptImages.includes(imageToRemove)) {
+      const updatedImages = deptImages.filter(img => img !== imageToRemove);
+      handleFieldChange(fieldName, updatedImages);
+      
+      toast({
+        title: 'Image removed',
+        description: 'Click "Save Changes" to confirm removal.',
+      });
+    } else {
+      toast({
+        title: 'Cannot remove',
+        description: 'This is a global image. Only department images can be removed.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleSetCoverImage = (fieldName, imageIndex, allImages) => {
+    const coverImage = allImages[imageIndex];
+    const fieldValue = fields.find(f => f.name === fieldName)?.value ?? '';
+    const deptImages = Array.isArray(fieldValue) ? fieldValue : (fieldValue ? [fieldValue] : []);
+    
+    // Reorder so cover image is first
+    const otherImages = deptImages.filter(img => img !== coverImage);
+    const reorderedImages = [coverImage, ...otherImages];
+    
+    handleFieldChange(fieldName, reorderedImages);
+    setCoverImageIndex(0);
+    
+    toast({
+      title: 'Cover image set',
+      description: 'Click "Save Changes" to confirm.',
     });
   };
 
@@ -201,41 +249,107 @@ export default function DepartmentPanel({
                 : fieldValue
                   ? [fieldValue]
                   : [];
-              
-              const globalImages = Array.isArray(srd.images) ? srd.images : [];
+
+              const globalImages = Array.isArray(srd.images) ? srd.images : (srd.images ? [srd.images] : []);
               const allImages = Array.from(new Set([...globalImages, ...deptImages]));
 
               return (
                 <div key={_id}>
                   <Label>{name}</Label>
+                  
+                  {canEdit && (
+                    <div className="mt-2 mb-3">
+                      <UploadImage 
+                        onUploaded={(urls) => {
+                          const imageArray = Array.isArray(urls) ? urls : (urls ? [urls] : []);
+                          if (imageArray.length > 0) {
+                            const currentImages = Array.isArray(fieldValue) ? fieldValue : (fieldValue ? [fieldValue] : []);
+                            const updatedImages = [...currentImages, ...imageArray];
+                            handleFieldChange(name, updatedImages);
+                            toast({
+                              title: 'Images uploaded',
+                              description: `${imageArray.length} image(s) uploaded. Click "Save Changes" to save them.`,
+                            });
+                          }
+                        }} 
+                      />
+                    </div>
+                  )}
+
                   {allImages.length > 0 ? (
-                    <div className="grid grid-cols-3 gap-3 mt-2">
-                      {allImages.map((src, idx) => (
-                        <div
-                          key={idx}
-                          className="relative group cursor-pointer"
-                          onClick={() => {
-                            setImageModalIndex(idx);
-                            setModalImages(allImages);
-                            setIsImageModalOpen(true);
-                          }}
-                        >
-                          <Image
-                            src={src}
-                            alt={`${name}-${idx}`}
-                            width={120}
-                            height={120}
-                            className="object-cover rounded-lg border border-gray-200 w-full h-24"
-                          />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs transition">
-                            View
+                    <div className="grid grid-cols-4 md:grid-cols-6 gap-2 mt-2">
+                      {allImages.map((src, idx) => {
+                        const isDeptImage = deptImages.includes(src);
+                        const isCover = idx === 0;
+                        
+                        return (
+                          <div
+                            key={idx}
+                            className="relative group aspect-square"
+                          >
+                            <div
+                              className="cursor-pointer w-full h-full"
+                              onClick={() => {
+                                setImageModalIndex(idx);
+                                setModalImages(allImages);
+                                setIsImageModalOpen(true);
+                              }}
+                            >
+                              <Image
+                                src={src}
+                                alt={`${name}-${idx}`}
+                                fill
+                                className={cn(
+                                  "object-cover rounded border transition-all",
+                                  isCover ? "border-yellow-400 border-2" : "border-gray-200 hover:border-blue-400"
+                                )}
+                              />
+                              {isCover && (
+                                <div className="absolute top-1 left-1 bg-yellow-400 text-yellow-900 px-1.5 py-0.5 rounded text-xs font-semibold flex items-center gap-1">
+                                  <Star className="h-3 w-3 fill-current" />
+                                  Cover
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs transition rounded">
+                                <span className="bg-black/60 px-2 py-1 rounded">View</span>
+                              </div>
+                            </div>
+                            
+                            {canEdit && (
+                              <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                {!isCover && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSetCoverImage(name, idx, allImages);
+                                    }}
+                                    className="bg-yellow-500 hover:bg-yellow-600 text-white p-1 rounded shadow-lg"
+                                    title="Set as cover"
+                                  >
+                                    <Star className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {isDeptImage && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveImage(name, idx, allImages);
+                                    }}
+                                    className="bg-red-500 hover:bg-red-600 text-white p-1 rounded shadow-lg"
+                                    title="Remove image"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-sm text-gray-500 italic mt-1">
-                      No images uploaded.
+                      No images uploaded yet.
                     </p>
                   )}
                 </div>
@@ -349,7 +463,7 @@ export default function DepartmentPanel({
 
       {/* Image Slider Modal */}
       {isImageModalOpen && modalImages.length > 0 && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90"
           onClick={() => setIsImageModalOpen(false)}
         >
@@ -360,7 +474,7 @@ export default function DepartmentPanel({
             <X className="h-8 w-8" />
           </button>
 
-          <div 
+          <div
             className="relative max-w-5xl max-h-[90vh] w-full mx-4"
             onClick={(e) => e.stopPropagation()}
           >
