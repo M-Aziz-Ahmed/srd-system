@@ -3,7 +3,7 @@
 ## Step 1: Commit Changes
 ```bash
 git add .
-git commit -m "Fix voice clips, WebRTC audio, and online status tracking"
+git commit -m "Fix voice clips, WebRTC audio (including ICE timing), and online status"
 git push
 ```
 

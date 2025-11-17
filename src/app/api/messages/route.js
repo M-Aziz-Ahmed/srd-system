@@ -146,6 +146,9 @@ export async function POST(request) {
 
     // Handle voice message attachments
     if (body.attachments && body.attachments.length > 0) {
+      console.log('Attachments received:', JSON.stringify(body.attachments, null, 2));
+      console.log('Attachments type:', typeof body.attachments);
+      console.log('Is array:', Array.isArray(body.attachments));
       messageData.attachments = body.attachments;
     }
 
@@ -163,6 +166,8 @@ export async function POST(request) {
     if (body.transcriptionLanguage) {
       messageData.transcriptionLanguage = body.transcriptionLanguage;
     }
+
+    console.log('Message data to save:', JSON.stringify(messageData, null, 2));
 
     const message = await Message.create(messageData);
     const populatedMessage = await Message.findById(message._id)

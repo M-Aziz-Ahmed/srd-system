@@ -56,7 +56,10 @@ const messageSchema = new mongoose.Schema({
   
   // Attachments (for voice messages, files, etc.)
   attachments: [{
-    type: String,
+    type: {
+      type: String,
+      default: 'audio'
+    },
     url: String,
     mimeType: String,
     size: Number,
@@ -89,4 +92,9 @@ messageSchema.index({ sender: 1, recipient: 1, createdAt: -1 });
 messageSchema.index({ department: 1, createdAt: -1 });
 messageSchema.index({ type: 1, createdAt: -1 });
 
-export default mongoose.models.Message || mongoose.model('Message', messageSchema);
+// Delete the model if it exists to ensure schema updates are applied
+if (mongoose.models.Message) {
+  delete mongoose.models.Message;
+}
+
+export default mongoose.model('Message', messageSchema);

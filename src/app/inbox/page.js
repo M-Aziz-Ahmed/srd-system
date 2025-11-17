@@ -648,82 +648,67 @@ export default function InboxPage() {
     setIsSending(true);
 
     try {
-      // Convert audio blob to base64 data URL
-      const reader = new FileReader();
-      
-      reader.onloadend = async () => {
-        try {
-          const base64Audio = reader.result;
+      // Upload audio file to server first
+      const formData = new FormData();
+      formData.append('file', audioBlob, `voice_${Date.now()}.webm`);
 
-          // Send message with audio data URL and transcription
-          const messageData = {
-            type: selectedConversation.type,
-            content: recordingMode === 'transcribe' && transcription ? transcription : '🎤 Voice message',
-            isVoice: recordingMode === 'voice', // Only mark as voice if in voice mode
-            transcription: transcription || null,
-            transcriptionLanguage: selectedLanguage,
-            attachments: recordingMode === 'voice' ? [{
-              type: 'audio',
-              url: base64Audio,
-              mimeType: audioBlob.type || 'audio/webm',
-              size: audioBlob.size,
-            }] : [],
-          };
+      const uploadResponse = await fetch('/api/upload-audio', {
+        method: 'POST',
+        body: formData,
+      });
 
-          if (selectedConversation.type === 'direct') {
-            messageData.recipientId = selectedConversation.user._id;
-          } else if (selectedConversation.type === 'group') {
-            messageData.groupId = selectedConversation.group._id;
-          }
+      const uploadData = await uploadResponse.json();
 
-          const response = await fetch('/api/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(messageData),
-          });
+      if (!uploadData.success) {
+        throw new Error(uploadData.error || 'Failed to upload audio');
+      }
 
-          const data = await response.json();
-
-          if (data.success) {
-            setMessages(prev => [...prev, data.data]);
-            setAudioBlob(null);
-            setTranscription('');
-            setIsTranscribing(false);
-            audioChunksRef.current = [];
-            toast({
-              title: 'Voice message sent',
-              description: transcription ? 'Voice message with transcription delivered' : 'Your voice message has been delivered',
-            });
-          } else {
-            toast({
-              title: 'Error',
-              description: data.error || 'Failed to send voice message',
-              variant: 'destructive',
-            });
-          }
-        } catch (error) {
-          console.error('Error sending voice message:', error);
-          toast({
-            title: 'Error',
-            description: error.message || 'Failed to send voice message',
-            variant: 'destructive',
-          });
-        } finally {
-          setIsSending(false);
-        }
+      // Send message with uploaded audio URL
+      const messageData = {
+        type: selectedConversation.type,
+        content: recordingMode === 'transcribe' && transcription ? transcription : '🎤 Voice message',
+        isVoice: recordingMode === 'voice', // Only mark as voice if in voice mode
+        transcription: transcription || null,
+        transcriptionLanguage: selectedLanguage,
+        attachments: recordingMode === 'voice' ? [{
+          type: 'audio',
+          url: uploadData.url, // Use uploaded file URL
+          mimeType: uploadData.mimeType,
+          size: uploadData.size,
+        }] : [],
       };
 
-      reader.onerror = () => {
-        console.error('Error reading audio file');
+      if (selectedConversation.type === 'direct') {
+        messageData.recipientId = selectedConversation.user._id;
+      } else if (selectedConversation.type === 'group') {
+        messageData.groupId = selectedConversation.group._id;
+      }
+
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(messageData),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setMessages(prev => [...prev, data.data]);
+        setAudioBlob(null);
+        setTranscription('');
+        setIsTranscribing(false);
+        audioChunksRef.current = [];
+        toast({
+          title: 'Voice message sent',
+          description: transcription ? 'Voice message with transcription delivered' : 'Your voice message has been delivered',
+        });
+      } else {
         toast({
           title: 'Error',
-          description: 'Failed to read audio file',
+          description: data.error || 'Failed to send voice message',
           variant: 'destructive',
         });
-        setIsSending(false);
-      };
-
-      reader.readAsDataURL(audioBlob);
+      }
     } catch (error) {
       console.error('Error sending voice message:', error);
       toast({
@@ -731,6 +716,7 @@ export default function InboxPage() {
         description: error.message || 'Failed to send voice message',
         variant: 'destructive',
       });
+    } finally {
       setIsSending(false);
     }
   };
@@ -817,28 +803,53 @@ export default function InboxPage() {
 
       // Add local stream tracks to peer connection
       stream.getTracks().forEach(track => {
-        console.log('Adding local track:', track.kind, track.enabled);
-        peerConnection.addTrack(track, stream);
+        console.log('Adding local track:', track.kind, 'enabled:', track.enabled, 'muted:', track.muted, 'readyState:', track.readyState);
+        const sender = peerConnection.addTrack(track, stream);
+        console.log('Track added, sender:', sender);
       });
 
       // Handle remote stream
       peerConnection.ontrack = (event) => {
-        console.log('Received remote track:', event.track.kind, 'enabled:', event.track.enabled);
+        console.log('🎵 Received remote track:', {
+          kind: event.track.kind,
+          enabled: event.track.enabled,
+          muted: event.track.muted,
+          readyState: event.track.readyState,
+          streams: event.streams.length
+        });
+        
         const [remoteStream] = event.streams;
+        console.log('Remote stream tracks:', remoteStream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          muted: t.muted
+        })));
+        
         setRemoteStream(remoteStream);
         
         // Automatically play remote audio/video
         if (remoteVideoRef.current) {
+          console.log('Setting remote stream to element');
           remoteVideoRef.current.srcObject = remoteStream;
           remoteVideoRef.current.volume = 1.0;
           remoteVideoRef.current.muted = false;
           
+          // Log audio element state
+          console.log('Audio element:', {
+            volume: remoteVideoRef.current.volume,
+            muted: remoteVideoRef.current.muted,
+            paused: remoteVideoRef.current.paused
+          });
+          
           // Force play with retry
           const playAttempt = () => {
             remoteVideoRef.current?.play()
-              .then(() => console.log('Remote stream playing successfully'))
+              .then(() => {
+                console.log('✅ Remote stream playing successfully');
+                console.log('Audio playing:', !remoteVideoRef.current.paused);
+              })
               .catch(e => {
-                console.log('Remote play error:', e);
+                console.log('❌ Remote play error:', e);
                 setTimeout(playAttempt, 500);
               });
           };
@@ -1056,8 +1067,9 @@ export default function InboxPage() {
       
       // Add local stream tracks
       stream.getTracks().forEach(track => {
-        console.log('Adding local track:', track.kind, track.enabled);
-        peerConnection.addTrack(track, stream);
+        console.log('Adding local track:', track.kind, 'enabled:', track.enabled, 'muted:', track.muted, 'readyState:', track.readyState);
+        const sender = peerConnection.addTrack(track, stream);
+        console.log('Track added, sender:', sender);
       });
       
       // Handle remote stream
@@ -1897,7 +1909,13 @@ export default function InboxPage() {
                   ref={remoteVideoRef}
                   autoPlay
                   playsInline
+                  muted={false}
+                  volume={1.0}
                   className="hidden"
+                  onLoadedMetadata={(e) => {
+                    console.log('Audio metadata loaded');
+                    e.target.play().catch(err => console.log('Audio play error:', err));
+                  }}
                 />
               )}
               
