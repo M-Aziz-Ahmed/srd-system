@@ -144,6 +144,26 @@ export async function POST(request) {
       messageData.srd = body.srdId;
     }
 
+    // Handle voice message attachments
+    if (body.attachments && body.attachments.length > 0) {
+      messageData.attachments = body.attachments;
+    }
+
+    // Handle voice message flag
+    if (body.isVoice !== undefined) {
+      messageData.isVoice = body.isVoice;
+    }
+
+    // Handle transcription
+    if (body.transcription) {
+      messageData.transcription = body.transcription;
+    }
+
+    // Handle transcription language
+    if (body.transcriptionLanguage) {
+      messageData.transcriptionLanguage = body.transcriptionLanguage;
+    }
+
     const message = await Message.create(messageData);
     const populatedMessage = await Message.findById(message._id)
       .populate('sender', 'name email role')

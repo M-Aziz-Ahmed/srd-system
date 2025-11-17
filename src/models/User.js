@@ -11,6 +11,12 @@ const userSchema = new mongoose.Schema({
   },
   department: String,
   isActive: { type: Boolean, default: true },
+  onlineStatus: { 
+    type: String, 
+    enum: ['online', 'offline', 'away'], 
+    default: 'offline' 
+  },
+  lastSeen: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
   lastLogin: Date
 });

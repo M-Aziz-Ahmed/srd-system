@@ -44,6 +44,7 @@ export default function InboxPage() {
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [userStatuses, setUserStatuses] = useState({});
   const [activeTab, setActiveTab] = useState('all');
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -134,6 +135,19 @@ export default function InboxPage() {
         ));
       });
 
+      // Subscribe to presence channel for online status
+      const presenceChannel = pusher.subscribe('presence');
+      presenceChannel.bind('status-change', (data) => {
+        console.log('Status change:', data);
+        setUserStatuses(prev => ({
+          ...prev,
+          [data.email]: {
+            status: data.status,
+            lastSeen: data.lastSeen,
+          }
+        }));
+      });
+
       // WebRTC Call Signaling
       userChannel.bind('call-offer', async (data) => {
         console.log('Received call offer from:', data.from);
@@ -209,6 +223,31 @@ export default function InboxPage() {
     fetchMessages();
     fetchUsers();
     fetchSRDs();
+    updateOnlineStatus('online');
+
+    // Update status on page visibility change
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        updateOnlineStatus('away');
+      } else {
+        updateOnlineStatus('online');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Set offline on page unload
+    const handleBeforeUnload = () => {
+      updateOnlineStatus('offline');
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      updateOnlineStatus('offline');
+    };
   }, [session, status, router, activeTab]);
 
   const fetchSRDs = async () => {
@@ -245,10 +284,33 @@ export default function InboxPage() {
       const data = await response.json();
       
       if (data.success) {
-        setUsers(data.data.filter(u => u.email !== session.user.email));
+        const filteredUsers = data.data.filter(u => u.email !== session.user.email);
+        setUsers(filteredUsers);
+        
+        // Initialize user statuses
+        const statuses = {};
+        filteredUsers.forEach(user => {
+          statuses[user.email] = {
+            status: user.onlineStatus || 'offline',
+            lastSeen: user.lastSeen,
+          };
+        });
+        setUserStatuses(statuses);
       }
     } catch (error) {
       console.error('Error fetching users:', error);
+    }
+  };
+
+  const updateOnlineStatus = async (status) => {
+    try {
+      await fetch('/api/users/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+    } catch (error) {
+      console.error('Error updating status:', error);
     }
   };
 
@@ -713,12 +775,16 @@ export default function InboxPage() {
         localVideoRef.current.srcObject = stream;
       }
 
-      // Create peer connection
+      // Create peer connection with better STUN/TURN servers
       const configuration = {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' },
         ],
+        iceCandidatePoolSize: 10,
       };
 
       const peerConnection = new RTCPeerConnection(configuration);
@@ -732,21 +798,49 @@ export default function InboxPage() {
 
       // Handle remote stream
       peerConnection.ontrack = (event) => {
-        console.log('Received remote track:', event.track.kind);
+        console.log('Received remote track:', event.track.kind, 'enabled:', event.track.enabled);
         const [remoteStream] = event.streams;
         setRemoteStream(remoteStream);
         
         // Automatically play remote audio/video
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStream;
-          remoteVideoRef.current.play().catch(e => {
-            console.log('Remote play error:', e);
-            // Try again after user interaction
-            setTimeout(() => {
-              remoteVideoRef.current?.play().catch(err => console.log('Retry failed:', err));
-            }, 1000);
-          });
+          remoteVideoRef.current.volume = 1.0;
+          remoteVideoRef.current.muted = false;
+          
+          // Force play with retry
+          const playAttempt = () => {
+            remoteVideoRef.current?.play()
+              .then(() => console.log('Remote stream playing successfully'))
+              .catch(e => {
+                console.log('Remote play error:', e);
+                setTimeout(playAttempt, 500);
+              });
+          };
+          playAttempt();
         }
+      };
+
+      // Monitor connection state
+      peerConnection.onconnectionstatechange = () => {
+        console.log('Connection state:', peerConnection.connectionState);
+        if (peerConnection.connectionState === 'connected') {
+          toast({
+            title: 'Call Connected',
+            description: 'You are now connected',
+          });
+        } else if (peerConnection.connectionState === 'failed') {
+          toast({
+            title: 'Connection Failed',
+            description: 'Call connection failed. Please try again.',
+            variant: 'destructive',
+          });
+          endCall();
+        }
+      };
+
+      peerConnection.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', peerConnection.iceConnectionState);
       };
 
       // Handle ICE candidates
@@ -917,13 +1011,16 @@ export default function InboxPage() {
         localVideoRef.current.srcObject = stream;
       }
       
-      // Create peer connection
+      // Create peer connection with better STUN/TURN servers
       const configuration = {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
           { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' },
         ],
+        iceCandidatePoolSize: 10,
       };
       
       const peerConnection = new RTCPeerConnection(configuration);
@@ -1182,7 +1279,15 @@ export default function InboxPage() {
                           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold text-lg">
                             {user.name?.charAt(0).toUpperCase()}
                           </div>
-                          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white"></div>
+                          {userStatuses[user.email]?.status === 'online' && (
+                            <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-white"></div>
+                          )}
+                          {userStatuses[user.email]?.status === 'away' && (
+                            <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-yellow-500 rounded-full border-2 border-white"></div>
+                          )}
+                          {userStatuses[user.email]?.status === 'offline' && (
+                            <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-gray-400 rounded-full border-2 border-white"></div>
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
@@ -1230,7 +1335,15 @@ export default function InboxPage() {
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold">
                         {selectedConversation.user?.name?.charAt(0).toUpperCase()}
                       </div>
-                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+                      {userStatuses[selectedConversation.user?.email]?.status === 'online' && (
+                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+                      )}
+                      {userStatuses[selectedConversation.user?.email]?.status === 'away' && (
+                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-yellow-500 rounded-full border-2 border-white"></div>
+                      )}
+                      {userStatuses[selectedConversation.user?.email]?.status === 'offline' && (
+                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-gray-400 rounded-full border-2 border-white"></div>
+                      )}
                     </div>
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 flex items-center justify-center">
@@ -1246,7 +1359,11 @@ export default function InboxPage() {
                     </h2>
                     <p className="text-xs text-gray-500">
                       {selectedConversation.type === 'direct'
-                        ? selectedConversation.user?.role
+                        ? userStatuses[selectedConversation.user?.email]?.status === 'online'
+                          ? '🟢 Online'
+                          : userStatuses[selectedConversation.user?.email]?.status === 'away'
+                          ? '🟡 Away'
+                          : '⚫ Offline'
                         : `${selectedConversation.messages.length} members`}
                     </p>
                   </div>
