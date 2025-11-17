@@ -72,7 +72,6 @@ export async function GET(request) {
       .populate('sender', 'name email role')
       .populate('recipient', 'name email role')
       .populate('srd', 'refNo title description progress')
-      .populate('srdId', 'refNo title description progress')
       .sort({ createdAt: -1 })
       .limit(100);
 
@@ -143,15 +142,13 @@ export async function POST(request) {
     // Set srd field from srdId for consistency
     if (body.srdId) {
       messageData.srd = body.srdId;
-      messageData.srdId = body.srdId;
     }
 
     const message = await Message.create(messageData);
     const populatedMessage = await Message.findById(message._id)
       .populate('sender', 'name email role')
       .populate('recipient', 'name email role')
-      .populate('srd', 'refNo title description progress')
-      .populate('srdId', 'refNo title description progress');
+      .populate('srd', 'refNo title description progress');
 
     // Trigger Pusher event for real-time updates
     try {

@@ -52,6 +52,10 @@ export default function InboxPage() {
   const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
+  const [transcription, setTranscription] = useState('');
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingMode, setRecordingMode] = useState('voice'); // 'voice' or 'transcribe'
+  const [selectedLanguage, setSelectedLanguage] = useState('en-US');
   const [showCallDialog, setShowCallDialog] = useState(false);
   const [callType, setCallType] = useState(null); // 'voice' or 'video'
   const [isInCall, setIsInCall] = useState(false);
@@ -60,6 +64,8 @@ export default function InboxPage() {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null); // {from, type, offer}
+  const [isRinging, setIsRinging] = useState(false);
   const [showSRDPicker, setShowSRDPicker] = useState(false);
   const [srds, setSrds] = useState([]);
   const [selectedSRD, setSelectedSRD] = useState(null);
@@ -132,95 +138,154 @@ export default function InboxPage() {
       userChannel.bind('call-offer', async (data) => {
         console.log('Received call offer from:', data.from);
         
-        // Show incoming call notification
-        const accept = window.confirm(`Incoming ${data.type} call from ${data.from}. Accept?`);
+        // Find caller info
+        const caller = users.find(u => u.email === data.from) || { name: data.from, email: data.from };
         
-        if (accept) {
-          try {
-            setCallType(data.type);
-            setShowCallDialog(true);
-            
-            // Get user media
-            const constraints = {
-              audio: true,
-              video: data.type === 'video' ? { width: 1280, height: 720 } : false,
-            };
-            
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            setLocalStream(stream);
-            
-            if (localVideoRef.current && data.type === 'video') {
-              localVideoRef.current.srcObject = stream;
-            }
-            
-            // Create peer connection
-            const configuration = {
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-              ],
-            };
-            
-            const peerConnection = new RTCPeerConnection(configuration);
-            peerConnectionRef.current = peerConnection;
-            
-            // Add local stream
-            stream.getTracks().forEach(track => {
-              peerConnection.addTrack(track, stream);
-            });
-            
-            // Handle remote stream
-            peerConnection.ontrack = (event) => {
-              console.log('Received remote track');
-              const [remoteStream] = event.streams;
-              setRemoteStream(remoteStream);
-              if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = remoteStream;
-              }
-            };
-            
-            // Handle ICE candidates
-            peerConnection.onicecandidate = (event) => {
-              if (event.candidate) {
-                pusher.trigger(`user-${data.from}`, 'ice-candidate', {
-                  candidate: event.candidate,
-                  from: session.user.email,
-                });
-              }
-            };
-            
-            // Set remote description and create answer
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            
-            // Send answer
-            pusher.trigger(`user-${data.from}`, 'call-answer', {
-              answer: answer,
-              from: session.user.email,
-            });
-            
-            setIsInCall(true);
-            
-            // Start timer
-            callTimerRef.current = setInterval(() => {
-              setCallDuration(prev => prev + 1);
-            }, 1000);
-          } catch (error) {
-            console.error('Error accepting call:', error);
-            toast({
-              title: 'Call Error',
-              description: 'Could not accept call',
-              variant: 'destructive',
-            });
+        // Show WhatsApp-style incoming call notification
+        setIncomingCall({
+          from: caller,
+          type: data.callType || data.type,
+          offer: data.offer,
+          fromEmail: data.from,
+        });
+        setIsRinging(true);
+        
+        // Play ringtone (optional)
+        const audio = new Audio('/ringtone.mp3');
+        audio.loop = true;
+        audio.play().catch(e => console.log('Ringtone play failed:', e));
+        
+        // Store audio reference to stop later
+        window.ringtoneAudio = audio;
+      });
+      
+      // Accept incoming call function
+      const acceptIncomingCall = async () => {
+        if (!incomingCall) return;
+        
+        // Stop ringtone
+        if (window.ringtoneAudio) {
+          window.ringtoneAudio.pause();
+          window.ringtoneAudio = null;
+        }
+        
+        setIsRinging(false);
+        
+        try {
+          setCallType(incomingCall.type);
+          setShowCallDialog(true);
+          
+          // Get user media
+          const constraints = {
+            audio: true,
+            video: incomingCall.type === 'video' ? { width: 1280, height: 720 } : false,
+          };
+          
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          setLocalStream(stream);
+          
+          if (localVideoRef.current && incomingCall.type === 'video') {
+            localVideoRef.current.srcObject = stream;
           }
-        } else {
-          // Reject call
-          pusher.trigger(`user-${data.from}`, 'call-rejected', {
-            from: session.user.email,
+          
+          // Create peer connection
+          const configuration = {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+            ],
+          };
+          
+          const peerConnection = new RTCPeerConnection(configuration);
+          peerConnectionRef.current = peerConnection;
+          
+          // Add local stream
+          stream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, stream);
+          });
+          
+          // Handle remote stream
+          peerConnection.ontrack = (event) => {
+            console.log('Received remote track');
+            const [remoteStream] = event.streams;
+            setRemoteStream(remoteStream);
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.srcObject = remoteStream;
+            }
+          };
+          
+          // Handle ICE candidates
+          peerConnection.onicecandidate = async (event) => {
+            if (event.candidate) {
+              // Send via API instead of direct Pusher trigger
+              await fetch('/api/webrtc/signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: incomingCall.fromEmail,
+                  type: 'ice-candidate',
+                  candidate: event.candidate,
+                }),
+              });
+            }
+          };
+          
+          // Set remote description and create answer
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          
+          // Send answer via API
+          await fetch('/api/webrtc/signal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: incomingCall.fromEmail,
+              type: 'call-answer',
+              answer: answer,
+            }),
+          });
+          
+          setIsInCall(true);
+          setIncomingCall(null);
+          
+          // Start timer
+          callTimerRef.current = setInterval(() => {
+            setCallDuration(prev => prev + 1);
+          }, 1000);
+        } catch (error) {
+          console.error('Error accepting call:', error);
+          toast({
+            title: 'Call Error',
+            description: 'Could not accept call',
+            variant: 'destructive',
           });
         }
-      });
+      };
+      
+      // Reject incoming call function
+      const rejectIncomingCall = () => {
+        if (!incomingCall) return;
+        
+        // Stop ringtone
+        if (window.ringtoneAudio) {
+          window.ringtoneAudio.pause();
+          window.ringtoneAudio = null;
+        }
+        
+        // Reject call via API
+        fetch('/api/webrtc/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: incomingCall.fromEmail,
+            type: 'call-rejected',
+          }),
+        });
+        
+        setIncomingCall(null);
+        setIsRinging(false);
+      };
 
       userChannel.bind('call-answer', async (data) => {
         console.log('Received call answer from:', data.from);
@@ -483,7 +548,7 @@ export default function InboxPage() {
     }
   };
 
-  // Voice recording functions
+  // Voice recording functions with transcription
   const startRecording = async () => {
     try {
       console.log('Requesting microphone access...');
@@ -510,6 +575,46 @@ export default function InboxPage() {
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
+      // Start speech recognition for transcription (only in transcribe mode)
+      if (recordingMode === 'transcribe' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = selectedLanguage; // Use selected language
+        
+        let finalTranscript = '';
+        
+        recognition.onresult = (event) => {
+          let interimTranscript = '';
+          
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript + ' ';
+            } else {
+              interimTranscript += transcript;
+            }
+          }
+          
+          setTranscription(finalTranscript + interimTranscript);
+          setIsTranscribing(true);
+        };
+        
+        recognition.onerror = (event) => {
+          console.error('Speech recognition error:', event.error);
+          setIsTranscribing(false);
+        };
+        
+        recognition.onend = () => {
+          setIsTranscribing(false);
+        };
+        
+        recognition.start();
+        mediaRecorderRef.current.recognition = recognition;
+      }
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           console.log('Audio chunk received:', event.data.size, 'bytes');
@@ -523,6 +628,11 @@ export default function InboxPage() {
         console.log('Audio blob created:', audioBlob.size, 'bytes');
         setAudioBlob(audioBlob);
         stream.getTracks().forEach(track => track.stop());
+        
+        // Stop speech recognition
+        if (mediaRecorder.recognition) {
+          mediaRecorder.recognition.stop();
+        }
       };
 
       mediaRecorder.onerror = (event) => {
@@ -540,7 +650,7 @@ export default function InboxPage() {
       
       toast({
         title: 'Recording',
-        description: 'Voice recording started',
+        description: 'Voice recording started with transcription',
       });
     } catch (error) {
       console.error('Error accessing microphone:', error);
@@ -561,9 +671,14 @@ export default function InboxPage() {
 
   const cancelRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      if (mediaRecorderRef.current.recognition) {
+        mediaRecorderRef.current.recognition.stop();
+      }
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setAudioBlob(null);
+      setTranscription('');
+      setIsTranscribing(false);
       audioChunksRef.current = [];
     }
   };
@@ -581,17 +696,19 @@ export default function InboxPage() {
         try {
           const base64Audio = reader.result;
 
-          // Send message with audio data URL
+          // Send message with audio data URL and transcription
           const messageData = {
             type: selectedConversation.type,
-            content: '🎤 Voice message',
-            isVoice: true,
-            attachments: [{
+            content: recordingMode === 'transcribe' && transcription ? transcription : '🎤 Voice message',
+            isVoice: recordingMode === 'voice', // Only mark as voice if in voice mode
+            transcription: transcription || null,
+            transcriptionLanguage: selectedLanguage,
+            attachments: recordingMode === 'voice' ? [{
               type: 'audio',
               url: base64Audio,
               mimeType: audioBlob.type || 'audio/webm',
               size: audioBlob.size,
-            }],
+            }] : [],
           };
 
           if (selectedConversation.type === 'direct') {
@@ -611,10 +728,12 @@ export default function InboxPage() {
           if (data.success) {
             setMessages(prev => [...prev, data.data]);
             setAudioBlob(null);
+            setTranscription('');
+            setIsTranscribing(false);
             audioChunksRef.current = [];
             toast({
               title: 'Voice message sent',
-              description: 'Your voice message has been delivered',
+              description: transcription ? 'Voice message with transcription delivered' : 'Your voice message has been delivered',
             });
           } else {
             toast({
@@ -741,12 +860,17 @@ export default function InboxPage() {
       };
 
       // Handle ICE candidates
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate && pusherRef.current) {
+      peerConnection.onicecandidate = async (event) => {
+        if (event.candidate) {
           console.log('Sending ICE candidate');
-          pusherRef.current.trigger(`user-${selectedConversation.user.email}`, 'ice-candidate', {
-            candidate: event.candidate,
-            from: session.user.email,
+          await fetch('/api/webrtc/signal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: selectedConversation.user.email,
+              type: 'ice-candidate',
+              candidate: event.candidate,
+            }),
           });
         }
       };
@@ -755,14 +879,17 @@ export default function InboxPage() {
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
 
-      // Send offer via Pusher
-      if (pusherRef.current) {
-        pusherRef.current.trigger(`user-${selectedConversation.user.email}`, 'call-offer', {
+      // Send offer via API
+      await fetch('/api/webrtc/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: selectedConversation.user.email,
+          type: 'call-offer',
           offer: offer,
-          from: session.user.email,
-          type: type,
-        });
-      }
+          callType: type,
+        }),
+      });
 
       setIsInCall(true);
 
@@ -852,6 +979,146 @@ export default function InboxPage() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const acceptIncomingCall = async () => {
+    if (!incomingCall) return;
+    
+    // Stop ringtone
+    if (window.ringtoneAudio) {
+      window.ringtoneAudio.pause();
+      window.ringtoneAudio = null;
+    }
+    
+    setIsRinging(false);
+    
+    try {
+      setCallType(incomingCall.type);
+      setShowCallDialog(true);
+      
+      // Get user media
+      const constraints = {
+        audio: true,
+        video: incomingCall.type === 'video' ? { width: 1280, height: 720 } : false,
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      setLocalStream(stream);
+      
+      if (localVideoRef.current && incomingCall.type === 'video') {
+        localVideoRef.current.srcObject = stream;
+      }
+      
+      // Create peer connection
+      const configuration = {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      };
+      
+      const peerConnection = new RTCPeerConnection(configuration);
+      peerConnectionRef.current = peerConnection;
+      
+      // Add local stream
+      stream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, stream);
+      });
+      
+      // Handle remote stream
+      peerConnection.ontrack = (event) => {
+        console.log('Received remote track');
+        const [remoteStream] = event.streams;
+        setRemoteStream(remoteStream);
+        
+        // Play remote audio automatically
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+          remoteVideoRef.current.play().catch(e => console.log('Remote play error:', e));
+        }
+      };
+      
+      // Handle ICE candidates
+      peerConnection.onicecandidate = async (event) => {
+        if (event.candidate) {
+          await fetch('/api/webrtc/signal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: incomingCall.from.email,
+              type: 'ice-candidate',
+              candidate: event.candidate,
+            }),
+          });
+        }
+      };
+      
+      // Set remote description and create answer
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      
+      // Send answer via API
+      await fetch('/api/webrtc/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: incomingCall.from.email,
+          type: 'call-answer',
+          answer: answer,
+        }),
+      });
+      
+      setIsInCall(true);
+      setIncomingCall(null);
+      
+      // Start timer
+      callTimerRef.current = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+      
+      toast({
+        title: 'Call Connected',
+        description: `Connected with ${incomingCall.from.name}`,
+      });
+    } catch (error) {
+      console.error('Error accepting call:', error);
+      toast({
+        title: 'Call Error',
+        description: 'Could not accept call',
+        variant: 'destructive',
+      });
+      rejectIncomingCall();
+    }
+  };
+
+  const rejectIncomingCall = async () => {
+    if (!incomingCall) return;
+    
+    // Stop ringtone
+    if (window.ringtoneAudio) {
+      window.ringtoneAudio.pause();
+      window.ringtoneAudio = null;
+    }
+    
+    setIsRinging(false);
+    
+    // Send rejection signal
+    await fetch('/api/webrtc/signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: incomingCall.from.email,
+        type: 'call-rejected',
+      }),
+    });
+    
+    setIncomingCall(null);
+    
+    toast({
+      title: 'Call Declined',
+      description: 'You declined the call',
+    });
   };
 
   return (
@@ -1092,6 +1359,17 @@ export default function InboxPage() {
                     const isRead = msg.readBy && msg.readBy.length > 0;
                     const isSending = msg.sending;
                     const isSent = msg.sent || msg._id.indexOf('temp-') === -1;
+                    
+                    // Debug voice messages
+                    if (msg.isVoice || msg.content?.includes('🎤')) {
+                      console.log('Voice message detected:', {
+                        isVoice: msg.isVoice,
+                        hasAttachments: !!msg.attachments,
+                        attachmentsLength: msg.attachments?.length,
+                        firstAttachment: msg.attachments?.[0],
+                        content: msg.content
+                      });
+                    }
 
                     return (
                       <div
@@ -1128,24 +1406,45 @@ export default function InboxPage() {
                           )}
                           
                           {/* Voice message */}
-                          {msg.isVoice && msg.attachments && msg.attachments.length > 0 ? (
-                            <div className="flex items-center gap-2 min-w-[200px]">
-                              <div className={cn(
-                                "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
-                                isOwn ? "bg-blue-600" : "bg-gray-200"
-                              )}>
-                                <Mic className={cn("h-4 w-4", isOwn ? "text-white" : "text-gray-600")} />
+                          {(msg.isVoice || msg.content?.includes('🎤')) && msg.attachments && msg.attachments.length > 0 ? (
+                            <div className="space-y-2 min-w-[250px]">
+                              <div className="flex items-center gap-2">
+                                <div className={cn(
+                                  "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                                  isOwn ? "bg-blue-600" : "bg-gray-200"
+                                )}>
+                                  <Mic className={cn("h-4 w-4", isOwn ? "text-white" : "text-gray-600")} />
+                                </div>
+                                <audio 
+                                  controls 
+                                  preload="auto"
+                                  controlsList="nodownload"
+                                  className="flex-1"
+                                  src={
+                                    typeof msg.attachments[0] === 'string' 
+                                      ? msg.attachments[0] 
+                                      : msg.attachments[0]?.url || msg.attachments[0]
+                                  }
+                                  style={{ 
+                                    height: '36px',
+                                    maxWidth: '100%',
+                                    filter: isOwn ? 'invert(1) brightness(2)' : 'none'
+                                  }}
+                                  onError={(e) => {
+                                    console.error('Audio playback error:', e);
+                                    console.log('Audio src:', e.target.src);
+                                  }}
+                                />
                               </div>
-                              <audio 
-                                controls 
-                                preload="metadata"
-                                className="flex-1"
-                                src={msg.attachments[0].url || msg.attachments[0]}
-                                style={{ 
-                                  height: '32px',
-                                  filter: isOwn ? 'invert(1) brightness(2)' : 'none'
-                                }}
-                              />
+                              {msg.transcription && (
+                                <div className={cn(
+                                  "text-xs italic px-2 py-1 rounded",
+                                  isOwn ? "bg-blue-600 bg-opacity-50 text-blue-50" : "bg-gray-100 text-gray-600"
+                                )}>
+                                  <span className="font-semibold">📝 </span>
+                                  {msg.transcription}
+                                </div>
+                              )}
                             </div>
                           ) : msg.srd ? (
                             /* SRD Reference */
@@ -1211,53 +1510,86 @@ export default function InboxPage() {
               <div className="bg-white border-t border-gray-200 p-4">
                 {audioBlob ? (
                   /* Voice message preview */
-                  <div className="flex items-center gap-2 bg-blue-50 rounded-3xl px-4 py-3">
-                    <div className="flex-1 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
-                        <Mic className="h-5 w-5 text-white" />
+                  <div className="bg-blue-50 rounded-3xl px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+                          <Mic className="h-5 w-5 text-white" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">Voice message ready</p>
+                          <audio controls className="w-full mt-1" src={URL.createObjectURL(audioBlob)} />
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">Voice message ready</p>
-                        <audio controls className="w-full mt-1" src={URL.createObjectURL(audioBlob)} />
-                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setAudioBlob(null);
+                          setTranscription('');
+                        }}
+                        className="rounded-full w-8 h-8 p-0"
+                      >
+                        <X className="h-5 w-5 text-gray-500" />
+                      </Button>
+                      <Button
+                        onClick={sendVoiceMessage}
+                        disabled={isSending}
+                        className="rounded-full w-10 h-10 p-0"
+                      >
+                        <Send className="h-5 w-5" />
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setAudioBlob(null)}
-                      className="rounded-full w-8 h-8 p-0"
-                    >
-                      <X className="h-5 w-5 text-gray-500" />
-                    </Button>
-                    <Button
-                      onClick={sendVoiceMessage}
-                      disabled={isSending}
-                      className="rounded-full w-10 h-10 p-0"
-                    >
-                      <Send className="h-5 w-5" />
-                    </Button>
+                    {transcription && (
+                      <div className="bg-white rounded-lg px-3 py-2 text-sm text-gray-700">
+                        <span className="font-semibold text-blue-600">Transcription: </span>
+                        {transcription}
+                      </div>
+                    )}
                   </div>
                 ) : isRecording ? (
                   /* Recording indicator */
-                  <div className="flex items-center gap-2 bg-red-50 rounded-3xl px-4 py-3">
-                    <div className="flex-1 flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-                      <p className="text-sm font-medium text-red-600">Recording...</p>
+                  <div className="bg-red-50 rounded-3xl px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 flex items-center gap-3">
+                        <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+                        <p className="text-sm font-medium text-red-600">
+                          {recordingMode === 'voice' ? 'Recording Voice...' : 'Recording for Text...'}
+                        </p>
+                        {recordingMode === 'transcribe' && (
+                          <select
+                            value={selectedLanguage}
+                            onChange={(e) => setSelectedLanguage(e.target.value)}
+                            className="text-xs px-2 py-1 rounded border"
+                          >
+                            <option value="en-US">English</option>
+                            <option value="hi-IN">Hindi</option>
+                            <option value="ur-PK">Urdu</option>
+                            <option value="pa-IN">Punjabi</option>
+                          </select>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={cancelRecording}
+                        className="rounded-full w-8 h-8 p-0"
+                      >
+                        <X className="h-5 w-5 text-red-500" />
+                      </Button>
+                      <Button
+                        onClick={stopRecording}
+                        className="rounded-full w-10 h-10 p-0 bg-red-500 hover:bg-red-600"
+                      >
+                        <Check className="h-5 w-5" />
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={cancelRecording}
-                      className="rounded-full w-8 h-8 p-0"
-                    >
-                      <X className="h-5 w-5 text-red-500" />
-                    </Button>
-                    <Button
-                      onClick={stopRecording}
-                      className="rounded-full w-10 h-10 p-0 bg-red-500 hover:bg-red-600"
-                    >
-                      <Check className="h-5 w-5" />
-                    </Button>
+                    {isTranscribing && transcription && (
+                      <div className="bg-white rounded-lg px-3 py-2 text-sm text-gray-700">
+                        <span className="font-semibold text-red-600">Live: </span>
+                        {transcription}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   /* Normal input */
@@ -1325,12 +1657,28 @@ export default function InboxPage() {
                         <Send className="h-5 w-5" />
                       </Button>
                     ) : (
-                      <Button 
-                        onClick={startRecording}
-                        className="rounded-full w-10 h-10 p-0 flex-shrink-0 bg-blue-500 hover:bg-blue-600"
-                      >
-                        <Mic className="h-5 w-5" />
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          onClick={() => {
+                            setRecordingMode('transcribe');
+                            startRecording();
+                          }}
+                          className="rounded-full w-10 h-10 p-0 flex-shrink-0 bg-green-500 hover:bg-green-600"
+                          title="Voice to Text (Urdu/Hindi/English)"
+                        >
+                          <MessageSquare className="h-5 w-5" />
+                        </Button>
+                        <Button 
+                          onClick={() => {
+                            setRecordingMode('voice');
+                            startRecording();
+                          }}
+                          className="rounded-full w-10 h-10 p-0 flex-shrink-0 bg-blue-500 hover:bg-blue-600"
+                          title="Send Voice Message"
+                        >
+                          <Mic className="h-5 w-5" />
+                        </Button>
+                      </div>
                     )}
                     </div>
                   </div>
@@ -1564,6 +1912,59 @@ export default function InboxPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Incoming Call Notification - WhatsApp Style */}
+        {incomingCall && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80">
+            <div className="bg-gradient-to-br from-green-400 to-green-600 rounded-3xl p-8 max-w-sm w-full mx-4 shadow-2xl animate-pulse-slow">
+              <div className="text-center">
+                {/* Caller Avatar */}
+                <div className="w-32 h-32 rounded-full bg-white flex items-center justify-center text-green-600 text-5xl font-bold mx-auto mb-4 shadow-lg">
+                  {incomingCall.from.name?.charAt(0).toUpperCase()}
+                </div>
+                
+                {/* Caller Info */}
+                <h2 className="text-2xl font-bold text-white mb-2">
+                  {incomingCall.from.name}
+                </h2>
+                <p className="text-green-100 mb-1">{incomingCall.from.role}</p>
+                <p className="text-white font-semibold mb-6">
+                  {incomingCall.type === 'video' ? '📹 Video Call' : '📞 Voice Call'}
+                </p>
+                
+                {/* Ringing Animation */}
+                <div className="flex justify-center gap-2 mb-8">
+                  <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                
+                {/* Action Buttons */}
+                <div className="flex justify-center gap-6">
+                  {/* Reject Button */}
+                  <button
+                    onClick={rejectIncomingCall}
+                    className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg transform hover:scale-110 transition-all"
+                  >
+                    <Phone className="h-8 w-8 text-white rotate-135" />
+                  </button>
+                  
+                  {/* Accept Button */}
+                  <button
+                    onClick={acceptIncomingCall}
+                    className="w-16 h-16 rounded-full bg-white hover:bg-gray-100 flex items-center justify-center shadow-lg transform hover:scale-110 transition-all"
+                  >
+                    <Phone className="h-8 w-8 text-green-600" />
+                  </button>
+                </div>
+                
+                <p className="text-white text-sm mt-4 opacity-80">
+                  Swipe to answer
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Create Group Dialog */}
         <Dialog open={showCreateGroupDialog} onOpenChange={setShowCreateGroupDialog}>
