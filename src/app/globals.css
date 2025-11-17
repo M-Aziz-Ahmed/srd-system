@@ -62,3 +62,17 @@
 }
 
 
+
+
+/* Video call styles */
+.mirror {
+  transform: scaleX(-1);
+}
+
+.animation-delay-100 {
+  animation-delay: 100ms;
+}
+
+.animation-delay-200 {
+  animation-delay: 200ms;
+}

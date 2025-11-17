@@ -94,11 +94,19 @@ export async function PATCH(request, context) {
       });
     }
 
-    // Add audit record
+    // Add audit record with detailed action description
+    const actionDescription = body.status === 'flagged' 
+      ? `Flagged issue in ${dept.toUpperCase()}`
+      : body.status === 'approved'
+      ? `Approved by ${dept.toUpperCase()}`
+      : body.status === 'in-progress'
+      ? `Updated to In Progress by ${dept.toUpperCase()}`
+      : `Updated status to ${body.status} by ${dept.toUpperCase()}`;
+    
     srd.audit.push({
       department: dept,
       author: body.comment?.author || 'System',
-      action: body.status,
+      action: actionDescription,
       comment: body.comment?.text,
       date: new Date(),
     });
@@ -108,6 +116,28 @@ export async function PATCH(request, context) {
     
     // 🔹 FIX: Fetch the document again to ensure all fields are populated correctly
     const freshSRD = await SRD.findById(id).lean();
+
+    // Create notifications for all users
+    try {
+      const users = await User.find({});
+      const notificationMessage = body.status === 'flagged'
+        ? `🚩 ${dept.toUpperCase()} flagged an issue in SRD ${srd.refNo}`
+        : body.status === 'approved'
+        ? `✅ ${dept.toUpperCase()} approved SRD ${srd.refNo}`
+        : `📝 ${dept.toUpperCase()} updated SRD ${srd.refNo} to ${body.status}`;
+      
+      const notificationPromises = users.map(user =>
+        Notification.create({
+          user: user._id,
+          srd: srd._id,
+          message: notificationMessage,
+          read: false,
+        })
+      );
+      await Promise.all(notificationPromises);
+    } catch (notifError) {
+      console.error('Error creating notifications:', notifError);
+    }
 
     // Trigger Pusher event
     const eventName = body.status === 'flagged' ? 'srd:flag' : 'srd:update';
