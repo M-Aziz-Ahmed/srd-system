@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import Layout from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,7 +40,20 @@ export default function InboxPage() {
   const router = useRouter();
   const { toast } = useToast();
   
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    // Load from localStorage on mount for instant display
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('chat_messages');
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch (e) {
+          console.error('Failed to parse cached messages:', e);
+        }
+      }
+    }
+    return [];
+  });
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +92,7 @@ export default function InboxPage() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const pendingIceCandidatesRef = useRef([]);
+  const selectedConversationRef = useRef(null);
   
   // Group creation state
   const [newGroup, setNewGroup] = useState({
@@ -92,7 +106,9 @@ export default function InboxPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [selectedConversation]);
+  }, [selectedConversation, messages]);
+
+  // No sync effect needed - messages are added instantly via Pusher and local state
 
   // Real-time messaging with Pusher
   useEffect(() => {
@@ -111,13 +127,78 @@ export default function InboxPage() {
       const userChannel = pusher.subscribe(`user-${session.user.email}`);
 
       userChannel.bind('new-message', (data) => {
-        console.log('New message:', data);
+        console.log('📨 New message received:', data.message);
         
-        // Add message to state immediately
-        setMessages(prev => [...prev, data.message]);
+        const currentConv = selectedConversationRef.current;
+        const isOwnMessage = data.message.sender.email === session.user.email;
         
-        // Show toast notification
-        if (data.message.sender.email !== session.user.email) {
+        // Check if message is relevant to current conversation
+        const isRelevant = currentConv && (
+          (currentConv.type === 'direct' && 
+           ((data.message.sender._id === currentConv.user?._id) ||
+            (data.message.sender.email === currentConv.user?.email) ||
+            (data.message.recipient?._id === currentConv.user?._id) ||
+            (data.message.recipient?.email === currentConv.user?.email))) ||
+          (currentConv.type === 'department' && 
+           data.message.department === currentConv.department) ||
+          (currentConv.type === 'group' && 
+           data.message.groupId === currentConv.group?._id)
+        );
+        
+        if (isRelevant) {
+          setSelectedConversation(prev => {
+            // Check if already exists
+            const exists = prev.messages.some(m => m._id === data.message._id);
+            if (exists) return prev;
+            
+            // If it's our own message, replace temp version
+            if (isOwnMessage) {
+              const tempIndex = prev.messages.findIndex(m => 
+                m.localOnly && 
+                m.content === data.message.content &&
+                Math.abs(new Date(m.createdAt) - new Date(data.message.createdAt)) < 10000
+              );
+              
+              if (tempIndex !== -1) {
+                const newMessages = [...prev.messages];
+                newMessages[tempIndex] = { ...data.message, sent: true };
+                return { ...prev, messages: newMessages };
+              }
+            }
+            
+            // INSTANT: Add incoming message immediately
+            return {
+              ...prev,
+              messages: [...prev.messages, data.message]
+            };
+          });
+        }
+        
+        // INSTANT: Add to global messages for sidebar
+        setMessages(prev => {
+          const exists = prev.some(m => m._id === data.message._id);
+          if (exists) return prev;
+          
+          // Replace temp if it's our own message
+          if (isOwnMessage) {
+            const tempIndex = prev.findIndex(m => 
+              m.localOnly && 
+              m.content === data.message.content &&
+              Math.abs(new Date(m.createdAt) - new Date(data.message.createdAt)) < 10000
+            );
+            
+            if (tempIndex !== -1) {
+              const newMessages = [...prev];
+              newMessages[tempIndex] = { ...data.message, sent: true };
+              return newMessages;
+            }
+          }
+          
+          return [...prev, data.message];
+        });
+        
+        // Show toast for incoming messages from others
+        if (!isOwnMessage) {
           const isVoice = data.message.attachments && data.message.attachments.length > 0;
           toast({
             title: `New message from ${data.message.sender.name}`,
@@ -340,6 +421,8 @@ export default function InboxPage() {
   };
 
   const groupMessagesByConversation = (msgs) => {
+    if (!session?.user?.id) return [];
+    
     const conversations = {};
     
     msgs.forEach(msg => {
@@ -384,19 +467,23 @@ export default function InboxPage() {
     );
   };
 
-  const filteredMessages = messages.filter(msg => {
-    if (!searchTerm) return true;
-    
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      msg.content.toLowerCase().includes(searchLower) ||
-      msg.subject?.toLowerCase().includes(searchLower) ||
-      msg.sender?.name.toLowerCase().includes(searchLower) ||
-      msg.recipient?.name.toLowerCase().includes(searchLower)
-    );
-  });
+  const filteredMessages = useMemo(() => {
+    return messages.filter(msg => {
+      if (!searchTerm) return true;
+      
+      const searchLower = searchTerm.toLowerCase();
+      return (
+        msg.content.toLowerCase().includes(searchLower) ||
+        msg.subject?.toLowerCase().includes(searchLower) ||
+        msg.sender?.name.toLowerCase().includes(searchLower) ||
+        msg.recipient?.name.toLowerCase().includes(searchLower)
+      );
+    });
+  }, [messages, searchTerm]);
 
-  const conversations = groupMessagesByConversation(filteredMessages);
+  const conversations = useMemo(() => {
+    return groupMessagesByConversation(filteredMessages);
+  }, [filteredMessages, session?.user?.id]);
 
   if (loading) {
     return (
@@ -409,28 +496,15 @@ export default function InboxPage() {
   }
 
   const handleSendQuickMessage = async () => {
-    if ((!messageInput.trim() && !selectedSRD) || !selectedConversation || isSending) return;
+    if ((!messageInput.trim() && !selectedSRD) || !selectedConversation) return;
 
-    const messageData = {
-      type: selectedConversation.type,
-      content: messageInput.trim() || '📎 Shared an SRD',
-    };
-
-    if (selectedConversation.type === 'direct') {
-      messageData.recipientId = selectedConversation.user._id;
-    } else {
-      messageData.department = selectedConversation.department;
-    }
-
-    // Add SRD reference if selected
-    if (selectedSRD) {
-      messageData.srdId = selectedSRD._id;
-    }
-
-    // Optimistic update - add message immediately
-    const tempMessage = {
-      _id: `temp-${Date.now()}`,
-      content: messageInput.trim(),
+    const messageContent = messageInput.trim() || '📎 Shared an SRD';
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create instant local message
+    const instantMessage = {
+      _id: tempId,
+      content: messageContent,
       sender: {
         _id: session.user.id,
         name: session.user.name,
@@ -441,69 +515,151 @@ export default function InboxPage() {
       type: selectedConversation.type,
       createdAt: new Date().toISOString(),
       readBy: [],
-      sending: true, // Flag to show sending state
+      srd: selectedSRD || null,
+      localOnly: true, // Flag for instant display
     };
 
-    setMessages(prev => [...prev, tempMessage]);
+    // INSTANT: Add to conversation state immediately
+    setSelectedConversation(prev => ({
+      ...prev,
+      messages: [...prev.messages, instantMessage]
+    }));
+    
+    // INSTANT: Add to global messages for sidebar update
+    setMessages(prev => [...prev, instantMessage]);
+    
+    // Clear input immediately
     setMessageInput('');
-    setIsSending(true);
+    setSelectedSRD(null);
 
-    try {
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(messageData),
+    // BACKGROUND: Send to backend (don't await, fire and forget)
+    const messageData = {
+      type: selectedConversation.type,
+      content: messageContent,
+    };
+
+    if (selectedConversation.type === 'direct') {
+      messageData.recipientId = selectedConversation.user._id;
+    } else {
+      messageData.department = selectedConversation.department;
+    }
+
+    if (selectedSRD) {
+      messageData.srdId = selectedSRD._id;
+    }
+
+    // Send in background
+    fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(messageData),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          // Replace temp with real message
+          setSelectedConversation(prev => ({
+            ...prev,
+            messages: prev.messages.map(msg => 
+              msg._id === tempId ? { ...data.data, sent: true } : msg
+            )
+          }));
+          
+          setMessages(prev => 
+            prev.map(msg => 
+              msg._id === tempId ? { ...data.data, sent: true } : msg
+            )
+          );
+        } else {
+          // Mark as failed
+          setSelectedConversation(prev => ({
+            ...prev,
+            messages: prev.messages.map(msg => 
+              msg._id === tempId ? { ...msg, failed: true, localOnly: false } : msg
+            )
+          }));
+        }
+      })
+      .catch(error => {
+        console.error('Error sending message:', error);
+        // Mark as failed
+        setSelectedConversation(prev => ({
+          ...prev,
+          messages: prev.messages.map(msg => 
+            msg._id === tempId ? { ...msg, failed: true, localOnly: false } : msg
+          )
+        }));
       });
+  };
 
-      const data = await response.json();
+  const refreshUnreadCount = () => {
+    // Trigger a custom event to refresh unread count in sidebar
+    window.dispatchEvent(new Event('refreshUnreadCount'));
+  };
 
-      if (data.success) {
-        // Replace temp message with real one
-        setMessages(prev => prev.map(msg => 
-          msg._id === tempMessage._id ? { ...data.data, sent: true } : msg
-        ));
-        setSelectedSRD(null);
-      } else {
-        // Remove temp message on error
-        setMessages(prev => prev.filter(msg => msg._id !== tempMessage._id));
-        toast({
-          title: 'Error',
-          description: 'Failed to send message',
-          variant: 'destructive',
+  const markMessagesAsRead = async (conversationMessages) => {
+    try {
+      // Get unread messages in this conversation
+      const unreadMessages = conversationMessages.filter(msg => 
+        msg.sender._id !== session.user.id &&
+        msg.sender.email !== session.user.email &&
+        !msg.readBy?.some(r => r.user === session.user.id || r.user?.toString() === session.user.id)
+      );
+
+      // Mark each as read
+      for (const msg of unreadMessages) {
+        await fetch(`/api/messages/${msg._id}/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
         });
       }
+      
+      // Refresh unread count after marking as read
+      if (unreadMessages.length > 0) {
+        refreshUnreadCount();
+      }
     } catch (error) {
-      console.error('Error sending message:', error);
-      setMessages(prev => prev.filter(msg => msg._id !== tempMessage._id));
-      toast({
-        title: 'Error',
-        description: 'Failed to send message',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSending(false);
+      console.error('Error marking messages as read:', error);
     }
   };
 
-  const startConversation = (type, target) => {
-    if (type === 'direct') {
-      setSelectedConversation({
+  const startConversation = (type, target, existingConversation = null) => {
+    let conversation;
+    
+    if (existingConversation) {
+      // Use existing conversation data from sidebar (already has messages)
+      conversation = existingConversation;
+    } else if (type === 'direct') {
+      // Build new conversation if not in list yet
+      const conversationMessages = messages.filter(m => 
+        m.type === 'direct' && 
+        ((m.sender._id === session.user.id && m.recipient?._id === target._id) ||
+         (m.sender._id === target._id && m.recipient?._id === session.user.id))
+      );
+      
+      conversation = {
         key: `direct-${target._id}`,
         type: 'direct',
         user: target,
-        messages: messages.filter(m => 
-          m.type === 'direct' && 
-          ((m.sender._id === session.user.id && m.recipient?._id === target._id) ||
-           (m.sender._id === target._id && m.recipient?._id === session.user.id))
-        ),
-      });
+        messages: conversationMessages,
+      };
     } else if (type === 'group') {
-      setSelectedConversation({
+      const conversationMessages = messages.filter(m => m.type === 'group' && m.groupId === target._id);
+      
+      conversation = {
         key: `group-${target._id}`,
         type: 'group',
         group: target,
-        messages: messages.filter(m => m.type === 'group' && m.groupId === target._id),
-      });
+        messages: conversationMessages,
+      };
+    }
+    
+    setSelectedConversation(conversation);
+    selectedConversationRef.current = conversation;
+    
+    // Mark messages as read
+    if (conversation?.messages) {
+      markMessagesAsRead(conversation.messages);
     }
   };
 
@@ -1291,7 +1447,7 @@ export default function InboxPage() {
                             "flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors",
                             isActive ? "bg-blue-50" : "hover:bg-gray-50"
                           )}
-                          onClick={() => startConversation('group', group)}
+                          onClick={() => startConversation('group', group, groupConversation)}
                         >
                           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center flex-shrink-0">
                             <Users className="h-6 w-6 text-white" />
@@ -1327,7 +1483,7 @@ export default function InboxPage() {
                           "flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors",
                           isActive ? "bg-blue-50" : "hover:bg-gray-50"
                         )}
-                        onClick={() => startConversation('direct', user)}
+                        onClick={() => startConversation('direct', user, userConversation)}
                       >
                         <div className="relative flex-shrink-0">
                           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold text-lg">
@@ -1456,26 +1612,32 @@ export default function InboxPage() {
                     <p className="text-gray-500">No messages yet. Start the conversation!</p>
                   </div>
                 ) : (
-                  selectedConversation.messages.map((msg, idx) => {
+                  (() => {
+                    // Deduplicate messages before rendering
+                    const messageMap = new Map();
+                    selectedConversation.messages.forEach(m => {
+                      const existing = messageMap.get(m._id);
+                      // Keep the most complete version (not temp, has more data)
+                      if (!existing || (m._id.indexOf('temp-') === -1 && existing._id.indexOf('temp-') !== -1)) {
+                        messageMap.set(m._id, m);
+                      }
+                    });
+                    const uniqueMessages = Array.from(messageMap.values());
+                    
+                    return [...uniqueMessages].reverse().map((msg, idx) => {
                     const isOwn = msg.sender._id === session.user.id || msg.sender.email === session.user.email;
-                    const showAvatar = idx === 0 || selectedConversation.messages[idx - 1].sender._id !== msg.sender._id;
+                    const showAvatar = idx === 0 || [...uniqueMessages].reverse()[idx - 1]?.sender._id !== msg.sender._id;
                     const msgTime = new Date(msg.createdAt);
                     
-                    // Check if message is read
-                    const isRead = msg.readBy && msg.readBy.length > 0;
-                    const isSending = msg.sending;
-                    const isSent = msg.sent || msg._id.indexOf('temp-') === -1;
+                    // Message status
+                    const isLocalOnly = msg.localOnly; // Just sent, not confirmed yet
+                    const isFailed = msg.failed; // Failed to send
+                    const isSent = msg.sent || (!msg.localOnly && !msg.failed); // Confirmed by server
+                    const isRead = msg.readBy && msg.readBy.some(r => 
+                      r.user && r.user.toString() !== session.user.id && r.user.toString() !== msg.sender._id?.toString()
+                    );
                     
-                    // Debug voice messages
-                    if (msg.isVoice || msg.content?.includes('🎤')) {
-                      console.log('Voice message detected:', {
-                        isVoice: msg.isVoice,
-                        hasAttachments: !!msg.attachments,
-                        attachmentsLength: msg.attachments?.length,
-                        firstAttachment: msg.attachments?.[0],
-                        content: msg.content
-                      });
-                    }
+
 
                     return (
                       <div
@@ -1498,10 +1660,12 @@ export default function InboxPage() {
                         <div className={cn(
                           "max-w-[70%] rounded-2xl px-4 py-2 shadow-sm transition-all",
                           isOwn 
-                            ? isRead
+                            ? isFailed
+                              ? "bg-red-400 text-white rounded-br-sm" // Red when failed
+                              : isLocalOnly
+                              ? "bg-blue-400 text-white rounded-br-sm opacity-90" // Light blue when sending
+                              : isRead
                               ? "bg-blue-600 text-white rounded-br-sm" // Darker blue when read
-                              : isSending
-                              ? "bg-blue-300 text-white rounded-br-sm" // Light blue when sending
                               : "bg-blue-500 text-white rounded-br-sm" // Normal blue when sent
                             : "bg-white text-gray-900 rounded-bl-sm"
                         )}>
@@ -1593,12 +1757,16 @@ export default function InboxPage() {
                               {msgTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                             </span>
                             {isOwn && (
-                              isSending ? (
+                              isFailed ? (
+                                <span className="text-red-200 text-xs">Failed</span>
+                              ) : isLocalOnly ? (
                                 <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
                               ) : isRead ? (
-                                <CheckCheck className="h-3.5 w-3.5 text-white" />
-                              ) : (
                                 <CheckCheck className="h-3.5 w-3.5 text-blue-200" />
+                              ) : isSent ? (
+                                <CheckCheck className="h-3.5 w-3.5 text-white opacity-70" />
+                              ) : (
+                                <Check className="h-3.5 w-3.5 text-white opacity-70" />
                               )
                             )}
                           </div>
@@ -1607,7 +1775,8 @@ export default function InboxPage() {
                         {isOwn && <div className="w-8" />}
                       </div>
                     );
-                  })
+                    });
+                  })()
                 )}
                 <div ref={messagesEndRef} />
               </div>

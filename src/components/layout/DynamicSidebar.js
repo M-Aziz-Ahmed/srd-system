@@ -13,11 +13,10 @@ import {
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
-  FileSpreadsheet,
-  Edit,
   GitBranch,
   Plus,
   CheckCircle,
+  Inbox,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -37,8 +36,40 @@ export default function DynamicSidebar() {
   const { open, toggleSidebar, state } = useSidebar();
   const [menuItems, setMenuItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const userRole = session?.user?.role;
+
+  // Fetch unread count
+  useEffect(() => {
+    if (session?.user?.email) {
+      const fetchUnreadCount = async () => {
+        try {
+          const res = await fetch('/api/messages/unread-count');
+          const data = await res.json();
+          if (data.success) {
+            setUnreadCount(data.count);
+          }
+        } catch (error) {
+          console.error('Error fetching unread count:', error);
+        }
+      };
+
+      fetchUnreadCount();
+      
+      // Refresh every 10 seconds
+      const interval = setInterval(fetchUnreadCount, 10000);
+      
+      // Listen for manual refresh events
+      const handleRefresh = () => fetchUnreadCount();
+      window.addEventListener('refreshUnreadCount', handleRefresh);
+      
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('refreshUnreadCount', handleRefresh);
+      };
+    }
+  }, [session]);
 
   useEffect(() => {
     if (userRole) {
@@ -51,7 +82,8 @@ export default function DynamicSidebar() {
       if (userRole === 'admin') {
         // Admin gets all config pages
         setMenuItems([
-          { name: 'Dashboard', href: '/dashboard/admin', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+          { name: 'Home', href: '/dashboard/admin', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+          { name: 'Inbox', href: '/inbox', icon: Inbox, gradient: 'from-pink-500 to-rose-500', showBadge: true },
           { name: 'All SRDs', href: '/srd', icon: FileText, gradient: 'from-purple-500 to-pink-500' },
           { name: 'Production', href: '/production', icon: Package, gradient: 'from-red-500 to-orange-500' },
           { name: 'Settings', href: '/settings', icon: Settings, gradient: 'from-gray-500 to-slate-600' },
@@ -65,6 +97,13 @@ export default function DynamicSidebar() {
             href: '/dashboard/production-manager', 
             icon: LayoutDashboard, 
             gradient: 'from-blue-500 to-cyan-500' 
+          },
+          { 
+            name: 'Inbox', 
+            href: '/inbox', 
+            icon: Inbox, 
+            gradient: 'from-pink-500 to-rose-500',
+            showBadge: true
           },
           { 
             name: 'Production Tracking', 
@@ -101,6 +140,13 @@ export default function DynamicSidebar() {
                 href: `/dashboard/${userRole}`, 
                 icon: LayoutDashboard, 
                 gradient: 'from-blue-500 to-cyan-500' 
+              },
+              { 
+                name: 'Inbox', 
+                href: '/inbox', 
+                icon: Inbox, 
+                gradient: 'from-pink-500 to-rose-500',
+                showBadge: true
               }
             ];
 
@@ -282,6 +328,14 @@ export default function DynamicSidebar() {
                             )}>
                               {item.name}
                             </span>
+                            
+                            {/* Unread count badge */}
+                            {item.showBadge && unreadCount > 0 && (
+                              <span className="ml-auto mr-2 px-2 py-0.5 text-xs font-bold bg-red-500 text-white rounded-full min-w-[20px] text-center">
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                              </span>
+                            )}
+                            
                             <ChevronRight className={cn(
                               "ml-auto h-4 w-4 shrink-0",
                               isActive
@@ -289,6 +343,13 @@ export default function DynamicSidebar() {
                                 : "opacity-0 group-hover:opacity-100"
                             )} />
                           </>
+                        )}
+                        
+                        {/* Unread badge when collapsed */}
+                        {!open && item.showBadge && unreadCount > 0 && (
+                          <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-xs font-bold bg-red-500 text-white rounded-full min-w-[18px] text-center">
+                            {unreadCount > 9 ? '9+' : unreadCount}
+                          </span>
                         )}
                       </Link>
                     </SidebarMenuButton>

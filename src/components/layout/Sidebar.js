@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   FileText,
@@ -113,10 +114,42 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { open, toggleSidebar, state } = useSidebar();
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const userRole = session?.user?.role;
   const items = menuItems[userRole] || [];
   const roleGradient = roleColors[userRole] || roleColors.admin;
+
+  // Fetch unread count
+  useEffect(() => {
+    if (session?.user?.email) {
+      const fetchUnreadCount = async () => {
+        try {
+          const res = await fetch('/api/messages/unread-count');
+          const data = await res.json();
+          if (data.success) {
+            setUnreadCount(data.count);
+          }
+        } catch (error) {
+          console.error('Error fetching unread count:', error);
+        }
+      };
+
+      fetchUnreadCount();
+      
+      // Refresh every 10 seconds
+      const interval = setInterval(fetchUnreadCount, 10000);
+      
+      // Listen for manual refresh events
+      const handleRefresh = () => fetchUnreadCount();
+      window.addEventListener('refreshUnreadCount', handleRefresh);
+      
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('refreshUnreadCount', handleRefresh);
+      };
+    }
+  }, [session]);
 
   const fullUrl = pathname + (searchParams.toString() ? `?${searchParams.toString()}` : '');
   let activeItemHref = '';
@@ -235,6 +268,14 @@ export default function AppSidebar() {
                             )}>
                               {item.name}
                             </span>
+                            
+                            {/* Unread count badge for Inbox */}
+                            {item.name === 'Inbox' && unreadCount > 0 && (
+                              <span className="ml-auto mr-2 px-2 py-0.5 text-xs font-bold bg-red-500 text-white rounded-full min-w-[20px] text-center">
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                              </span>
+                            )}
+                            
                             <ChevronRight className={cn(
                               "ml-auto h-4 w-4 shrink-0",
                               isActive
@@ -242,6 +283,13 @@ export default function AppSidebar() {
                                 : "opacity-0 group-hover:opacity-100"
                             )} />
                           </>
+                        )}
+                        
+                        {/* Unread badge when collapsed */}
+                        {!open && item.name === 'Inbox' && unreadCount > 0 && (
+                          <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-xs font-bold bg-red-500 text-white rounded-full min-w-[18px] text-center">
+                            {unreadCount > 9 ? '9+' : unreadCount}
+                          </span>
                         )}
                       </Link>
                     </SidebarMenuButton>

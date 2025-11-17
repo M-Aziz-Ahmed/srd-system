@@ -14,7 +14,7 @@ export async function POST(request, { params }) {
 
     await dbConnect();
 
-    const { id } = params;
+    const { id } = await params;
     const user = await User.findOne({ email: session.user.email });
     
     if (!user) {
