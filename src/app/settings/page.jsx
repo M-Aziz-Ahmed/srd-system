@@ -1,7 +1,7 @@
 'use client'
 import Layout from "@/components/layout/Layout";
 import { Card } from "@/components/ui/card";
-import { Settings, Building2, Workflow, FileText } from "lucide-react";
+import { Settings, Building2, Workflow, FileText, Database } from "lucide-react";
 import Link from "next/link";
 
 export default function SettingsPage() {
@@ -47,6 +47,13 @@ export default function SettingsPage() {
             icon: FileText,
             href: "/production",
             color: "bg-teal-500"
+        },
+        {
+            title: "Backup Management",
+            description: "Create, manage, and restore system backups",
+            icon: Database,
+            href: "/settings/backup",
+            color: "bg-indigo-500"
         }
     ];
 

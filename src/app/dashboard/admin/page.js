@@ -170,6 +170,10 @@ export default function AdminDashboard() {
                 <Settings className="h-4 w-4 mr-2" />
                 Manage Departments
               </Button>
+              <Button className="w-full justify-start" variant="outline" onClick={() => router.push('/settings/backup')}>
+                <Settings className="h-4 w-4 mr-2" />
+                Backup Management
+              </Button>
             </CardContent>
           </Card>
 

@@ -75,7 +75,7 @@ A comprehensive Sample Request & Development Tracking System built with Next.js,
 ```bash
 git clone <repository-url>
 cd srds-gemini-scaffold
-```
+``
 
 2. Install dependencies:
 ```bash
