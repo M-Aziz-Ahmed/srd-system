@@ -18,7 +18,17 @@ const userSchema = new mongoose.Schema({
   },
   lastSeen: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
-  lastLogin: Date
+  lastLogin: Date,
+  pushSubscriptions: [{
+    endpoint: String,
+    keys: {
+      p256dh: String,
+      auth: String
+    },
+    expirationTime: Number,
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+  }]
 });
 
 userSchema.pre('save', async function (next) {

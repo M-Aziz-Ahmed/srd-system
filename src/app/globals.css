@@ -76,3 +76,51 @@
 .animation-delay-200 {
   animation-delay: 200ms;
 }
+
+
+/* PWA Install Prompt Animations */
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+/* PWA Standalone Mode Styles */
+@media (display-mode: standalone) {
+  body {
+    /* Add safe area padding for notched devices */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* iOS PWA Status Bar */
+@supports (-webkit-touch-callout: none) {
+  .ios-safe-area {
+    padding-top: max(env(safe-area-inset-top), 20px);
+  }
+}

@@ -13,7 +13,9 @@
     "migrate:users": "node src/lib/migrateUsers.js",
     "fix:srd-status": "node src/lib/fixSRDStatus.js",
     "backup:scheduler": "node src/lib/startBackupScheduler.js",
-    "backup:create": "node src/lib/createBackup.js"
+    "backup:create": "node src/lib/createBackup.js",
+    "pwa:setup": "node setup-pwa.js",
+    "pwa:test": "node test-webrtc.js"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
@@ -48,7 +50,8 @@
     "react-dropzone": "^14.3.8",
     "shadcn": "^3.5.0",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^2.6.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "^16.0.1",
