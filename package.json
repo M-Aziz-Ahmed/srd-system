@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:https": "node server.cjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -15,7 +16,11 @@
     "backup:scheduler": "node src/lib/startBackupScheduler.js",
     "backup:create": "node src/lib/createBackup.js",
     "pwa:setup": "node setup-pwa.js",
-    "pwa:test": "node test-webrtc.js"
+    "pwa:test": "node test-webrtc.js",
+    "pwa:check": "node check-pwa-localhost.cjs",
+    "pwa:fix": "node fix-pwa-now.cjs",
+    "https:help": "node setup-https-local.cjs",
+    "cert:generate": "node generate-cert.cjs"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
@@ -31,6 +36,7 @@
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "bcrypt": "^6.0.0",
+    "choco": "^0.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
