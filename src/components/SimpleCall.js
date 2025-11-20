@@ -14,14 +14,16 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
   const remoteAudio = useRef(null);
   const pendingCandidates = useRef([]);
 
-  // STUN + TURN configuration for cross-network calls
+  // Enhanced STUN + TURN configuration for reliable cross-network calls
   const config = {
     iceServers: [
-      // STUN servers (for same network)
+      // Google STUN servers
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      // Free TURN servers (for different networks)
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      // Multiple TURN servers for better reliability
       {
         urls: 'turn:openrelay.metered.ca:80',
         username: 'openrelayproject',
@@ -36,52 +38,81 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
         urls: 'turn:openrelay.metered.ca:443?transport=tcp',
         username: 'openrelayproject',
         credential: 'openrelayproject'
+      },
+      // Additional reliable TURN servers
+      {
+        urls: 'turn:relay1.expressturn.com:3478',
+        username: 'efJBIBF6YQNQXR3Q9T',
+        credential: 'uxjdLi6RfLuv1Oqb'
       }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
   };
 
-  // Listen for incoming signals
+  // Listen for incoming signals with improved error handling
   useEffect(() => {
     if (!pusher || !myEmail) return;
 
     const channel = pusher.subscribe(`call-${myEmail}`);
     
     channel.bind('signal', async (data) => {
-      console.log('📥 Received signal:', data.signal.type);
-      
-      const { signal } = data;
+      try {
+        console.log('📥 Received signal:', data.signal.type);
+        
+        const { signal } = data;
 
-      if (signal.type === 'offer') {
-        setIncomingCall(true);
-        // Store offer for when user accepts
-        window.incomingOffer = signal.offer;
-        window.incomingFrom = data.from;
-      } 
-      else if (signal.type === 'answer') {
-        if (peerConnection.current) {
-          await peerConnection.current.setRemoteDescription(signal.answer);
-          console.log('✅ Answer set');
-          
-          // Add pending candidates
-          for (const candidate of pendingCandidates.current) {
-            await peerConnection.current.addIceCandidate(candidate);
+        if (signal.type === 'offer') {
+          setIncomingCall(true);
+          // Store offer for when user accepts
+          window.incomingOffer = signal.offer;
+          window.incomingFrom = data.from;
+        } 
+        else if (signal.type === 'answer') {
+          if (peerConnection.current && peerConnection.current.signalingState === 'have-local-offer') {
+            await peerConnection.current.setRemoteDescription(new RTCSessionDescription(signal.answer));
+            console.log('✅ Answer set');
+            
+            // Add pending candidates after remote description is set
+            for (const candidate of pendingCandidates.current) {
+              try {
+                await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+                console.log('✅ Queued ICE candidate added');
+              } catch (err) {
+                console.warn('⚠️ Failed to add queued ICE candidate:', err);
+              }
+            }
+            pendingCandidates.current = [];
           }
-          pendingCandidates.current = [];
+        } 
+        else if (signal.type === 'ice-candidate') {
+          if (peerConnection.current) {
+            if (peerConnection.current.remoteDescription) {
+              try {
+                await peerConnection.current.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                console.log('✅ ICE candidate added immediately');
+              } catch (err) {
+                console.warn('⚠️ Failed to add ICE candidate:', err);
+              }
+            } else {
+              pendingCandidates.current.push(signal.candidate);
+              console.log('⏳ ICE candidate queued (no remote description yet)');
+            }
+          }
         }
-      } 
-      else if (signal.type === 'ice-candidate') {
-        if (peerConnection.current && peerConnection.current.remoteDescription) {
-          await peerConnection.current.addIceCandidate(signal.candidate);
-          console.log('✅ ICE candidate added');
-        } else {
-          pendingCandidates.current.push(signal.candidate);
-          console.log('⏳ ICE candidate queued');
+        else if (signal.type === 'end') {
+          endCall();
         }
+      } catch (error) {
+        console.error('❌ Error handling signal:', error);
       }
-      else if (signal.type === 'end') {
-        endCall();
-      }
+    });
+
+    // Handle connection errors
+    channel.bind('pusher:subscription_error', (error) => {
+      console.error('❌ Pusher subscription error:', error);
     });
 
     return () => {
@@ -107,20 +138,27 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
     }
   };
 
-  // Start call
+  // Start call with enhanced error handling and monitoring
   const startCall = async () => {
     try {
       console.log('🎤 Starting call...');
       
-      // Get microphone
+      // Check if browser supports WebRTC
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('WebRTC is not supported in this browser');
+      }
+
+      // Get microphone with enhanced constraints
       localStream.current = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1
         } 
       });
-      console.log('✅ Got microphone');
+      console.log('✅ Got microphone access');
 
       // Create peer connection
       peerConnection.current = new RTCPeerConnection(config);
@@ -128,45 +166,74 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
       // Add audio track
       localStream.current.getTracks().forEach(track => {
         peerConnection.current.addTrack(track, localStream.current);
-        console.log('✅ Added track:', track.kind);
+        console.log('✅ Added track:', track.kind, 'enabled:', track.enabled);
       });
 
       // Handle incoming audio
       peerConnection.current.ontrack = (event) => {
-        console.log('🎵 Received audio track');
-        if (remoteAudio.current) {
+        console.log('🎵 Received remote audio track');
+        if (remoteAudio.current && event.streams[0]) {
           remoteAudio.current.srcObject = event.streams[0];
-          remoteAudio.current.play();
-          console.log('✅ Playing remote audio');
+          remoteAudio.current.play().catch(e => {
+            console.warn('⚠️ Auto-play blocked, user interaction required');
+          });
+          console.log('✅ Remote audio stream set');
         }
       };
 
-      // Monitor connection state
+      // Enhanced connection monitoring
       peerConnection.current.onconnectionstatechange = () => {
-        console.log('🔗 Connection state:', peerConnection.current.connectionState);
+        const state = peerConnection.current.connectionState;
+        console.log('🔗 Connection state:', state);
+        
+        if (state === 'failed' || state === 'disconnected') {
+          console.warn('⚠️ Connection issues detected, attempting to reconnect...');
+          // Could implement reconnection logic here
+        } else if (state === 'connected') {
+          console.log('🎉 Call connected successfully!');
+        }
       };
 
       peerConnection.current.oniceconnectionstatechange = () => {
-        console.log('🧊 ICE state:', peerConnection.current.iceConnectionState);
+        const state = peerConnection.current.iceConnectionState;
+        console.log('🧊 ICE connection state:', state);
+        
+        if (state === 'failed') {
+          console.error('❌ ICE connection failed');
+        } else if (state === 'connected' || state === 'completed') {
+          console.log('🎉 ICE connection established!');
+        }
       };
 
-      // Handle ICE candidates
+      peerConnection.current.onicegatheringstatechange = () => {
+        console.log('🧊 ICE gathering state:', peerConnection.current.iceGatheringState);
+      };
+
+      // Handle ICE candidates with better logging
       peerConnection.current.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log('📤 ICE candidate type:', event.candidate.type);
+          console.log('📤 Sending ICE candidate:', {
+            type: event.candidate.type,
+            protocol: event.candidate.protocol,
+            address: event.candidate.address
+          });
           sendSignal({
             type: 'ice-candidate',
             candidate: event.candidate
           });
         } else {
-          console.log('✅ All ICE candidates sent');
+          console.log('✅ ICE candidate gathering complete');
         }
       };
 
-      // Create offer
-      const offer = await peerConnection.current.createOffer();
+      // Create offer with enhanced options
+      const offer = await peerConnection.current.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false
+      });
+      
       await peerConnection.current.setLocalDescription(offer);
-      console.log('✅ Created offer');
+      console.log('✅ Local description set (offer created)');
 
       // Send offer
       await sendSignal({
@@ -175,27 +242,55 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
       });
 
       setIsInCall(true);
-      console.log('✅ Call started');
+      console.log('✅ Call initiated successfully');
+      
     } catch (error) {
       console.error('❌ Start call error:', error);
-      alert('Failed to start call: ' + error.message);
+      
+      // Cleanup on error
+      if (localStream.current) {
+        localStream.current.getTracks().forEach(track => track.stop());
+        localStream.current = null;
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+        peerConnection.current = null;
+      }
+      
+      // User-friendly error messages
+      let errorMessage = 'Failed to start call: ';
+      if (error.name === 'NotAllowedError') {
+        errorMessage += 'Microphone access denied. Please allow microphone access and try again.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += 'No microphone found. Please connect a microphone and try again.';
+      } else {
+        errorMessage += error.message;
+      }
+      
+      alert(errorMessage);
     }
   };
 
-  // Accept call
+  // Accept call with enhanced error handling
   const acceptCall = async () => {
     try {
-      console.log('📞 Accepting call...');
+      console.log('📞 Accepting incoming call...');
       
-      // Get microphone
+      if (!window.incomingOffer) {
+        throw new Error('No incoming offer found');
+      }
+
+      // Get microphone with enhanced constraints
       localStream.current = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1
         } 
       });
-      console.log('✅ Got microphone');
+      console.log('✅ Got microphone access for incoming call');
 
       // Create peer connection
       peerConnection.current = new RTCPeerConnection(config);
@@ -203,55 +298,79 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
       // Add audio track
       localStream.current.getTracks().forEach(track => {
         peerConnection.current.addTrack(track, localStream.current);
-        console.log('✅ Added track:', track.kind);
+        console.log('✅ Added local track:', track.kind, 'enabled:', track.enabled);
       });
 
       // Handle incoming audio
       peerConnection.current.ontrack = (event) => {
-        console.log('🎵 Received audio track');
-        if (remoteAudio.current) {
+        console.log('🎵 Received remote audio track');
+        if (remoteAudio.current && event.streams[0]) {
           remoteAudio.current.srcObject = event.streams[0];
-          remoteAudio.current.play();
-          console.log('✅ Playing remote audio');
+          remoteAudio.current.play().catch(e => {
+            console.warn('⚠️ Auto-play blocked, user interaction required');
+          });
+          console.log('✅ Remote audio stream set');
         }
       };
 
-      // Monitor connection state
+      // Enhanced connection monitoring
       peerConnection.current.onconnectionstatechange = () => {
-        console.log('🔗 Connection state:', peerConnection.current.connectionState);
+        const state = peerConnection.current.connectionState;
+        console.log('🔗 Connection state:', state);
+        
+        if (state === 'failed' || state === 'disconnected') {
+          console.warn('⚠️ Connection issues detected');
+        } else if (state === 'connected') {
+          console.log('🎉 Call connected successfully!');
+        }
       };
 
       peerConnection.current.oniceconnectionstatechange = () => {
-        console.log('🧊 ICE state:', peerConnection.current.iceConnectionState);
+        const state = peerConnection.current.iceConnectionState;
+        console.log('🧊 ICE connection state:', state);
+        
+        if (state === 'failed') {
+          console.error('❌ ICE connection failed');
+        } else if (state === 'connected' || state === 'completed') {
+          console.log('🎉 ICE connection established!');
+        }
       };
 
       // Handle ICE candidates
       peerConnection.current.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log('📤 ICE candidate type:', event.candidate.type);
+          console.log('📤 Sending ICE candidate:', {
+            type: event.candidate.type,
+            protocol: event.candidate.protocol
+          });
           sendSignal({
             type: 'ice-candidate',
             candidate: event.candidate
           });
         } else {
-          console.log('✅ All ICE candidates sent');
+          console.log('✅ ICE candidate gathering complete');
         }
       };
 
-      // Set remote description (offer)
-      await peerConnection.current.setRemoteDescription(window.incomingOffer);
-      console.log('✅ Set remote description');
+      // Set remote description (the incoming offer)
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(window.incomingOffer));
+      console.log('✅ Remote description set from incoming offer');
 
-      // Add pending candidates
+      // Add any pending ICE candidates
       for (const candidate of pendingCandidates.current) {
-        await peerConnection.current.addIceCandidate(candidate);
+        try {
+          await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log('✅ Added queued ICE candidate');
+        } catch (err) {
+          console.warn('⚠️ Failed to add queued ICE candidate:', err);
+        }
       }
       pendingCandidates.current = [];
 
       // Create answer
       const answer = await peerConnection.current.createAnswer();
       await peerConnection.current.setLocalDescription(answer);
-      console.log('✅ Created answer');
+      console.log('✅ Local description set (answer created)');
 
       // Send answer
       await sendSignal({
@@ -259,38 +378,107 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
         answer: answer
       });
 
+      // Clear incoming call state
       setIncomingCall(false);
       setIsInCall(true);
-      console.log('✅ Call accepted');
+      window.incomingOffer = null;
+      window.incomingFrom = null;
+      
+      console.log('✅ Call accepted successfully');
+      
     } catch (error) {
       console.error('❌ Accept call error:', error);
-      alert('Failed to accept call: ' + error.message);
+      
+      // Cleanup on error
+      if (localStream.current) {
+        localStream.current.getTracks().forEach(track => track.stop());
+        localStream.current = null;
+      }
+      if (peerConnection.current) {
+        peerConnection.current.close();
+        peerConnection.current = null;
+      }
+      
+      setIncomingCall(false);
+      
+      // User-friendly error messages
+      let errorMessage = 'Failed to accept call: ';
+      if (error.name === 'NotAllowedError') {
+        errorMessage += 'Microphone access denied. Please allow microphone access and try again.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += 'No microphone found. Please connect a microphone and try again.';
+      } else {
+        errorMessage += error.message;
+      }
+      
+      alert(errorMessage);
     }
   };
 
-  // End call
+  // End call with proper cleanup
   const endCall = () => {
     console.log('📴 Ending call...');
     
-    if (localStream.current) {
-      localStream.current.getTracks().forEach(track => track.stop());
-    }
-    
-    if (peerConnection.current) {
-      peerConnection.current.close();
-    }
-    
-    if (remoteAudio.current) {
-      remoteAudio.current.srcObject = null;
-    }
+    try {
+      // Stop local media tracks
+      if (localStream.current) {
+        localStream.current.getTracks().forEach(track => {
+          track.stop();
+          console.log('🛑 Stopped track:', track.kind);
+        });
+        localStream.current = null;
+      }
+      
+      // Close peer connection
+      if (peerConnection.current) {
+        peerConnection.current.close();
+        peerConnection.current = null;
+        console.log('🔌 Peer connection closed');
+      }
+      
+      // Clear remote audio
+      if (remoteAudio.current) {
+        remoteAudio.current.srcObject = null;
+        remoteAudio.current.pause();
+      }
 
-    sendSignal({ type: 'end' });
+      // Send end signal to other party
+      if (isInCall) {
+        sendSignal({ type: 'end' });
+      }
+      
+      // Reset state
+      setIsInCall(false);
+      setIncomingCall(false);
+      setIsMuted(false);
+      pendingCandidates.current = [];
+      
+      // Clear stored offer data
+      window.incomingOffer = null;
+      window.incomingFrom = null;
+      
+      console.log('✅ Call ended and cleaned up');
+    } catch (error) {
+      console.error('❌ Error during call cleanup:', error);
+    }
+  };
+
+  // Decline incoming call
+  const declineCall = () => {
+    console.log('📴 Declining incoming call...');
     
-    setIsInCall(false);
+    // Send decline signal
+    if (window.incomingFrom) {
+      sendSignal({ type: 'end' });
+    }
+    
+    // Reset state
     setIncomingCall(false);
+    window.incomingOffer = null;
+    window.incomingFrom = null;
     pendingCandidates.current = [];
     
-    console.log('✅ Call ended');
+    console.log('✅ Call declined');
   };
 
   // Toggle mute
@@ -312,15 +500,24 @@ export default function SimpleCall({ myEmail, otherEmail, pusher }) {
       {/* Incoming call notification */}
       {incomingCall && !isInCall && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 text-center">
+          <div className="bg-white rounded-lg p-6 text-center shadow-2xl">
             <Phone className="h-16 w-16 mx-auto mb-4 text-green-600 animate-bounce" />
             <h2 className="text-xl font-bold mb-2">Incoming Call</h2>
-            <p className="text-gray-600 mb-4">from {window.incomingFrom}</p>
-            <div className="flex gap-4">
-              <Button onClick={() => setIncomingCall(false)} variant="outline">
+            <p className="text-gray-600 mb-6">from {window.incomingFrom}</p>
+            <div className="flex gap-4 justify-center">
+              <Button 
+                onClick={declineCall} 
+                variant="outline" 
+                className="bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
+              >
+                <PhoneOff className="h-4 w-4 mr-2" />
                 Decline
               </Button>
-              <Button onClick={acceptCall} className="bg-green-600">
+              <Button 
+                onClick={acceptCall} 
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Phone className="h-4 w-4 mr-2" />
                 Accept
               </Button>
             </div>
