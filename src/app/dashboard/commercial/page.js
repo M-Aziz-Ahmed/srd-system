@@ -71,7 +71,7 @@ export default function CommercialDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Commercial Dashboard</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Commercial Portal</h1>
             <p className="text-gray-600 mt-1">Manage supplier quotations and procurement</p>
           </div>
           <Link href="/dashboard/commercial/create">

@@ -93,7 +93,7 @@ export default function DynamicSidebar() {
         // Production Manager menu
         setMenuItems([
           { 
-            name: 'Dashboard', 
+            name: 'Home', 
             href: '/dashboard/production-manager', 
             icon: LayoutDashboard, 
             gradient: 'from-blue-500 to-cyan-500' 
@@ -136,7 +136,7 @@ export default function DynamicSidebar() {
             // Only VMD can create SRDs
             const menuItems = [
               { 
-                name: 'Dashboard', 
+                name: 'Home', 
                 href: `/dashboard/${userRole}`, 
                 icon: LayoutDashboard, 
                 gradient: 'from-blue-500 to-cyan-500' 
@@ -189,7 +189,7 @@ export default function DynamicSidebar() {
       console.error('Error fetching menu items:', error);
       // Fallback to basic menu
       setMenuItems([
-        { name: 'Dashboard', href: `/dashboard/${userRole}`, icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
+        { name: 'Home', href: `/dashboard/${userRole}`, icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
         { name: 'SRDs', href: '/srd', icon: FileText, gradient: 'from-purple-500 to-pink-500' },
       ]);
     } finally {

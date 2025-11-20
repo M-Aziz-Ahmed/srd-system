@@ -125,7 +125,7 @@ export default function ProductionManagerDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Production Manager Dashboard</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Production Manager Portal</h1>
             <p className="text-gray-600 mt-1">Manage and track all production activities</p>
           </div>
           <Link href="/production-stages">
