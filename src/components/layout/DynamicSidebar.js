@@ -124,6 +124,31 @@ export default function DynamicSidebar() {
             gradient: 'from-green-500 to-emerald-500' 
           },
         ]);
+      } else if (['cutting', 'sewing', 'washing', 'finishing', 'dispatch'].includes(userRole)) {
+        // Production stage roles
+        const stageNames = {
+          cutting: 'Cutting',
+          sewing: 'Sewing',
+          washing: 'Washing',
+          finishing: 'Finishing',
+          dispatch: 'Dispatch'
+        };
+        
+        setMenuItems([
+          { 
+            name: `${stageNames[userRole]} Dashboard`, 
+            href: `/dashboard/${userRole}`, 
+            icon: LayoutDashboard, 
+            gradient: 'from-blue-500 to-cyan-500' 
+          },
+          { 
+            name: 'Inbox', 
+            href: '/inbox', 
+            icon: Inbox, 
+            gradient: 'from-pink-500 to-rose-500',
+            showBadge: true
+          },
+        ]);
       } else {
         // Fetch department info for dynamic menu
         const response = await fetch('/api/departments');

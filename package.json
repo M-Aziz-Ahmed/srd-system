@@ -11,6 +11,8 @@
     "lint": "eslint .",
     "seed": "node src/lib/seed.js",
     "seed:dynamic": "node src/lib/seedDynamic.js",
+    "seed:production": "node src/lib/seedProductionStages.js",
+    "seed:production-users": "node src/lib/seedProductionUsers.js",
     "migrate:users": "node src/lib/migrateUsers.js",
     "fix:srd-status": "node src/lib/fixSRDStatus.js",
     "backup:scheduler": "node src/lib/startBackupScheduler.js",

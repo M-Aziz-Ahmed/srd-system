@@ -61,12 +61,16 @@ export default function LoginPage() {
   };
 
   const demoCredentials = [
-    { email: 'vmd@demo.com', role: 'VMD Manager' },
-    { email: 'cad@demo.com', role: 'CAD Manager' },
-    { email: 'commercial@demo.com', role: 'Commercial Manager' },
-    { email: 'mmc@demo.com', role: 'MMC Manager' },
-    { email: 'production@demo.com', role: 'Production Manager' },
-    { email: 'admin@demo.com', role: 'Admin' }
+    { email: 'admin@demo.com', role: 'Admin', category: 'Management' },
+    { email: 'vmd@demo.com', role: 'VMD Manager', category: 'Approval' },
+    { email: 'cad@demo.com', role: 'CAD Manager', category: 'Approval' },
+    { email: 'commercial@demo.com', role: 'Commercial Manager', category: 'Approval' },
+    { email: 'mmc@demo.com', role: 'MMC Manager', category: 'Approval' },
+    { email: 'cutting@srds.com', role: 'Cutting', category: 'Production', password: 'cutting123' },
+    { email: 'sewing@srds.com', role: 'Sewing', category: 'Production', password: 'sewing123' },
+    { email: 'washing@srds.com', role: 'Washing', category: 'Production', password: 'washing123' },
+    { email: 'finishing@srds.com', role: 'Finishing', category: 'Production', password: 'finishing123' },
+    { email: 'dispatch@srds.com', role: 'Dispatch', category: 'Production', password: 'dispatch123' },
   ];
 
   return (
@@ -134,22 +138,62 @@ export default function LoginPage() {
             </form>
           </CardContent>
           <CardFooter className="flex flex-col items-center">
-            <p className="text-xs text-gray-500 mb-4">Demo Password: password</p>
-            
-            <div className="w-full space-y-2">
+            <div className="w-full space-y-4">
               <p className="text-sm font-medium text-center text-gray-700">Demo Accounts:</p>
-              {demoCredentials.map((cred) => (
-                <button
-                  key={cred.email}
-                  onClick={() => {
-                    setEmail(cred.email);
-                    setPassword('password');
-                  }}
-                  className="w-full text-left p-2 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
-                >
-                  <span className="font-medium">{cred.role}:</span> {cred.email}
-                </button>
-              ))}
+              
+              {/* Management */}
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-2">Management:</p>
+                {demoCredentials.filter(c => c.category === 'Management').map((cred) => (
+                  <button
+                    key={cred.email}
+                    onClick={() => {
+                      setEmail(cred.email);
+                      setPassword(cred.password || 'password');
+                    }}
+                    className="w-full text-left p-2 text-xs bg-purple-50 hover:bg-purple-100 rounded-md transition-colors mb-1"
+                  >
+                    <span className="font-medium">{cred.role}:</span> {cred.email}
+                    <span className="text-gray-500 ml-2">({cred.password || 'password'})</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Approval Departments */}
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-2">Approval Departments:</p>
+                {demoCredentials.filter(c => c.category === 'Approval').map((cred) => (
+                  <button
+                    key={cred.email}
+                    onClick={() => {
+                      setEmail(cred.email);
+                      setPassword(cred.password || 'password');
+                    }}
+                    className="w-full text-left p-2 text-xs bg-blue-50 hover:bg-blue-100 rounded-md transition-colors mb-1"
+                  >
+                    <span className="font-medium">{cred.role}:</span> {cred.email}
+                    <span className="text-gray-500 ml-2">({cred.password || 'password'})</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Production Stages */}
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-2">🏭 Production Stages:</p>
+                {demoCredentials.filter(c => c.category === 'Production').map((cred) => (
+                  <button
+                    key={cred.email}
+                    onClick={() => {
+                      setEmail(cred.email);
+                      setPassword(cred.password || 'password');
+                    }}
+                    className="w-full text-left p-2 text-xs bg-green-50 hover:bg-green-100 rounded-md transition-colors mb-1"
+                  >
+                    <span className="font-medium">{cred.role}:</span> {cred.email}
+                    <span className="text-gray-500 ml-2">({cred.password})</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </CardFooter>
         </Card>

@@ -68,6 +68,14 @@ export default function ProductionManagerDashboard() {
 
   const handleStartProduction = async (srdId) => {
     try {
+      // Get the first production stage (cutting)
+      const firstStage = productionStages.find(s => s.order === 1) || productionStages[0];
+      
+      if (!firstStage) {
+        alert('No production stages configured. Please set up production stages first.');
+        return;
+      }
+
       const response = await fetch(`/api/srd/${srdId}`, {
         method: 'PATCH',
         headers: {
@@ -75,19 +83,24 @@ export default function ProductionManagerDashboard() {
         },
         body: JSON.stringify({ 
           inProduction: true, 
-          readyForProduction: true, // Keep it true when starting production
-          productionStartDate: new Date() 
+          readyForProduction: true,
+          productionStartDate: new Date(),
+          currentProductionStage: firstStage._id,
+          productionProgress: 0
         }),
       });
 
       const result = await response.json();
       if (result.success) {
+        alert(`Production started! SRD moved to ${firstStage.displayName} stage.`);
         fetchData(); // Refresh data after starting production
       } else {
         console.error('Failed to start production:', result.error);
+        alert('Failed to start production: ' + result.error);
       }
     } catch (error) {
       console.error('Error starting production:', error);
+      alert('Error starting production');
     }
   };
 
@@ -286,32 +299,52 @@ export default function ProductionManagerDashboard() {
 
         {/* Production Stages Overview */}
         {productionStages.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Production Stages Overview</CardTitle>
+          <Card className="overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50">
+              <CardTitle className="flex items-center">
+                <Package className="h-5 w-5 mr-2 text-blue-600" />
+                Production Pipeline
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {productionStages.map((stage) => (
-                  <div key={stage._id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center">
+            <CardContent className="p-6">
+              <div className="relative">
+                {/* Timeline line */}
+                <div className="absolute top-8 left-0 right-0 h-1 bg-gradient-to-r from-blue-200 via-purple-200 to-green-200 rounded-full" 
+                  style={{ width: 'calc(100% - 40px)', left: '20px' }} />
+                
+                {/* Stages */}
+                <div className="grid grid-cols-5 gap-2 relative">
+                  {productionStages.map((stage, index) => {
+                    const count = stats.byStage[stage._id] || 0;
+                    return (
+                      <div key={stage._id} className="flex flex-col items-center">
+                        {/* Stage circle */}
                         <div 
-                          className="w-3 h-3 rounded-full mr-2" 
+                          className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg relative z-10 transition-transform hover:scale-110"
                           style={{ backgroundColor: stage.color }}
-                        />
-                        <span className="font-medium text-sm">{stage.name}</span>
+                        >
+                          {count}
+                        </div>
+                        
+                        {/* Stage name */}
+                        <div className="mt-3 text-center">
+                          <p className="font-semibold text-sm capitalize">{stage.displayName}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {count} {count === 1 ? 'SRD' : 'SRDs'}
+                          </p>
+                        </div>
+                        
+                        {/* Arrow */}
+                        {index < productionStages.length - 1 && (
+                          <div className="absolute top-8 text-gray-400" 
+                            style={{ left: `${(index + 1) * 20}%` }}>
+                            <ArrowRight className="h-5 w-5" />
+                          </div>
+                        )}
                       </div>
-                      <Badge variant="outline">{stats.byStage[stage._id] || 0}</Badge>
-                    </div>
-                    {stage.estimatedDuration > 0 && (
-                      <p className="text-xs text-gray-500">
-                        <Clock className="h-3 w-3 inline mr-1" />
-                        {stage.estimatedDuration} days
-                      </p>
-                    )}
-                  </div>
-                ))}
+                    );
+                  })}
+                </div>
               </div>
             </CardContent>
           </Card>

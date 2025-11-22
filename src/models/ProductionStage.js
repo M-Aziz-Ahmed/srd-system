@@ -1,61 +1,43 @@
 import mongoose from 'mongoose';
 
-const ProductionStageSchema = new mongoose.Schema({
+const productionStageSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    trim: true,
+    unique: true
   },
-  slug: {
+  displayName: {
     type: String,
-    required: true,
-    unique: true,
-    trim: true,
-  },
-  description: {
-    type: String,
-    trim: true,
-  },
-  color: {
-    type: String,
-    default: '#6B7280',
-  },
-  icon: {
-    type: String,
-    default: 'Package',
+    required: true
   },
   order: {
     type: Number,
-    default: 0,
+    required: true,
+    default: 0
   },
   isActive: {
     type: Boolean,
-    default: true,
+    default: true
   },
-  // Estimated duration in days
-  estimatedDuration: {
-    type: Number,
-    default: 0,
+  description: String,
+  color: {
+    type: String,
+    default: '#3b82f6'
   },
-  // Requirements or checklist for this stage
-  requirements: [{
-    name: String,
-    description: String,
-    isRequired: Boolean
-  }],
+  icon: String,
   createdAt: {
     type: Date,
-    default: Date.now,
+    default: Date.now
   },
   updatedAt: {
     type: Date,
-    default: Date.now,
-  },
+    default: Date.now
+  }
 });
 
-ProductionStageSchema.pre('save', function (next) {
-  this.updatedAt = new Date();
-  next();
-});
+// Delete existing model if it exists
+if (mongoose.models.ProductionStage) {
+  delete mongoose.models.ProductionStage;
+}
 
-export default mongoose.models.ProductionStage || mongoose.model('ProductionStage', ProductionStageSchema);
+export default mongoose.model('ProductionStage', productionStageSchema);

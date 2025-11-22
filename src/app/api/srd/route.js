@@ -15,6 +15,7 @@ export async function GET(request) {
     const search = searchParams.get('search');
     const readyForProduction = searchParams.get('readyForProduction');
     const inProduction = searchParams.get('inProduction');
+    const currentProductionStage = searchParams.get('currentProductionStage');
 
     let query = {};
 
@@ -49,6 +50,11 @@ export async function GET(request) {
       query['inProduction'] = true;
     } else if (inProduction === 'false') {
       query['inProduction'] = false;
+    }
+
+    // Filter by currentProductionStage
+    if (currentProductionStage) {
+      query['currentProductionStage'] = currentProductionStage;
     }
 
     // Search by refNo or title
